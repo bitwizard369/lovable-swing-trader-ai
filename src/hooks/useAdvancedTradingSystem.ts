@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -20,9 +21,9 @@ export const useAdvancedTradingSystem = (
   onClosePosition: (id: string, price: number) => void
 ) => {
   const [config, setConfig] = useState<AdvancedTradingConfig>({
-    minProbability: 0.65,
-    minConfidence: 0.6,
-    maxRiskScore: 0.7,
+    minProbability: 0.55, // Lowered from 0.65
+    minConfidence: 0.50,  // Lowered from 0.60
+    maxRiskScore: 0.8,    // Increased from 0.7
     adaptiveSizing: true,
     learningEnabled: true,
     maxPositionsPerSymbol: 3
@@ -47,17 +48,24 @@ export const useAdvancedTradingSystem = (
       const midPrice = (bids[0].price + asks[0].price) / 2;
       const volume = bids[0].quantity + asks[0].quantity;
       
+      console.log(`[Trading Bot] Price update: ${midPrice.toFixed(2)}, Volume: ${volume.toFixed(4)}`);
+      
       technicalAnalysis.current.updatePriceData(midPrice, volume);
       
       const newIndicators = technicalAnalysis.current.calculateAdvancedIndicators();
       const newMarketContext = technicalAnalysis.current.getMarketContext();
+      
+      console.log(`[Trading Bot] Indicators available: ${!!newIndicators}, Market context: ${newMarketContext?.trendDirection}`);
       
       setIndicators(newIndicators);
       setMarketContext(newMarketContext);
       
       // Generate predictions and signals
       if (newIndicators && newMarketContext) {
+        console.log(`[Trading Bot] Generating signal for price ${midPrice.toFixed(2)}`);
         generateAdvancedSignal(midPrice, newIndicators, newMarketContext);
+      } else {
+        console.log(`[Trading Bot] Insufficient data - Price history length: ${technicalAnalysis.current.getPriceHistoryLength()}`);
       }
     }
   }, [bids, asks]);
@@ -75,9 +83,15 @@ export const useAdvancedTradingSystem = (
     indicators: AdvancedIndicators,
     marketContext: MarketContext
   ) => {
-    // Rate limiting - minimum 10 seconds between signals
+    // Rate limiting - reduced to 5 seconds from 10 seconds
     const now = Date.now();
-    if (now - lastSignalTime.current < 10000) return;
+    const timeSinceLastSignal = now - lastSignalTime.current;
+    console.log(`[Trading Bot] Time since last signal: ${timeSinceLastSignal}ms (cooldown: 5000ms)`);
+    
+    if (timeSinceLastSignal < 5000) {
+      console.log(`[Trading Bot] Rate limiting active, ${5000 - timeSinceLastSignal}ms remaining`);
+      return;
+    }
 
     const orderBookImbalance = calculateOrderBookImbalance();
     const recentPriceMovement = [currentPrice]; // Simplified - would use actual price history
@@ -91,16 +105,30 @@ export const useAdvancedTradingSystem = (
       dayOfWeek: new Date().getDay()
     };
 
+    console.log(`[Trading Bot] Order book imbalance: ${orderBookImbalance.toFixed(4)}`);
+
     const newPrediction = aiModel.current.predict(predictionInput);
     setPrediction(newPrediction);
 
+    console.log(`[Trading Bot] Prediction - Probability: ${newPrediction.probability.toFixed(3)}, Confidence: ${newPrediction.confidence.toFixed(3)}, Risk: ${newPrediction.riskScore.toFixed(3)}`);
+
     // Generate signal if conditions are met
     if (shouldGenerateSignal(newPrediction)) {
+      console.log(`[Trading Bot] Signal conditions met! Creating trading signal...`);
       const signal = createTradingSignal(currentPrice, newPrediction, indicators);
-      if (signal) { // Only execute if we have a valid trading signal (not HOLD)
+      if (signal) {
+        console.log(`[Trading Bot] Executing ${signal.action} signal at ${signal.price.toFixed(2)}`);
         executeAdvancedSignal(signal, newPrediction);
         lastSignalTime.current = now;
+      } else {
+        console.log(`[Trading Bot] Signal created but was HOLD action, skipping execution`);
       }
+    } else {
+      console.log(`[Trading Bot] Signal conditions not met:`);
+      console.log(`  - Probability: ${newPrediction.probability.toFixed(3)} (min: ${config.minProbability})`);
+      console.log(`  - Confidence: ${newPrediction.confidence.toFixed(3)} (min: ${config.minConfidence})`);
+      console.log(`  - Risk Score: ${newPrediction.riskScore.toFixed(3)} (max: ${config.maxRiskScore})`);
+      console.log(`  - Active Positions: ${activePositions.size} (max: ${config.maxPositionsPerSymbol})`);
     }
   }, [config]);
 
@@ -129,19 +157,30 @@ export const useAdvancedTradingSystem = (
     prediction: PredictionOutput,
     indicators: AdvancedIndicators
   ): TradingSignal | null => {
-    // Determine action based on prediction probability
-    // Only return a signal if we want to BUY or SELL, not HOLD
+    // Enhanced signal logic with more aggressive thresholds
     let action: 'BUY' | 'SELL' | 'HOLD';
     
-    if (prediction.probability > 0.6) {
+    // More aggressive probability thresholds
+    if (prediction.probability > 0.55) { // Lowered from 0.6
       action = 'BUY';
-    } else if (prediction.probability < 0.4) {
+    } else if (prediction.probability < 0.45) { // Raised from 0.4
       action = 'SELL';
     } else {
       action = 'HOLD';
     }
 
-    // If action is HOLD, don't create a trading signal
+    // Override HOLD decision in trending markets with good confidence
+    if (action === 'HOLD' && prediction.confidence > 0.6) {
+      if (marketContext?.trendDirection === 'BULLISH' && prediction.probability > 0.52) {
+        action = 'BUY';
+        console.log(`[Trading Bot] Overriding HOLD to BUY due to bullish trend`);
+      } else if (marketContext?.trendDirection === 'BEARISH' && prediction.probability < 0.48) {
+        action = 'SELL';
+        console.log(`[Trading Bot] Overriding HOLD to SELL due to bearish trend`);
+      }
+    }
+
+    // If action is still HOLD, don't create a trading signal
     if (action === 'HOLD') {
       return null;
     }
@@ -152,19 +191,19 @@ export const useAdvancedTradingSystem = (
     let quantity = baseQuantity;
     if (config.adaptiveSizing) {
       const kellyFraction = (prediction.probability * 2 - 1) * prediction.confidence;
-      quantity = baseQuantity * (1 + kellyFraction);
+      quantity = baseQuantity * (1 + kellyFraction * 0.5); // Reduced multiplier for safety
     }
 
     return {
       symbol,
-      action, // This will now only be 'BUY' or 'SELL'
+      action,
       confidence: prediction.confidence,
       price,
       quantity,
       timestamp: Date.now(),
       reasoning: generateSignalReasoning(prediction, indicators)
     };
-  }, [symbol, config]);
+  }, [symbol, config, marketContext]);
 
   const generateSignalReasoning = useCallback((
     prediction: PredictionOutput,
@@ -185,16 +224,31 @@ export const useAdvancedTradingSystem = (
       reasons.push(`${marketContext?.trendDirection.toLowerCase()} trend`);
     }
     
-    return reasons.join(', ') || 'AI model prediction';
+    // Add more specific reasons
+    if (indicators.rsi_14 < 35) {
+      reasons.push('oversold RSI');
+    } else if (indicators.rsi_14 > 65) {
+      reasons.push('overbought RSI');
+    }
+    
+    if (indicators.macd > indicators.macd_signal) {
+      reasons.push('bullish MACD');
+    } else if (indicators.macd < indicators.macd_signal) {
+      reasons.push('bearish MACD');
+    }
+    
+    return reasons.join(', ') || `AI prediction (${(prediction.probability * 100).toFixed(1)}% probability)`;
   }, [marketContext]);
 
   const executeAdvancedSignal = useCallback((
     signal: TradingSignal,
     prediction: PredictionOutput
   ) => {
+    console.log(`[Trading Bot] Executing signal: ${signal.action} ${signal.quantity} ${signal.symbol} at ${signal.price}`);
+    
     const positionId = onAddPosition({
       symbol: signal.symbol,
-      side: signal.action, // Now guaranteed to be 'BUY' or 'SELL'
+      side: signal.action,
       size: signal.quantity,
       entryPrice: signal.price,
       currentPrice: signal.price,
@@ -206,7 +260,7 @@ export const useAdvancedTradingSystem = (
         position: {
           id: positionId,
           symbol: signal.symbol,
-          side: signal.action as 'BUY' | 'SELL', // Type assertion since we know it's not HOLD
+          side: signal.action as 'BUY' | 'SELL',
           size: signal.quantity,
           entryPrice: signal.price,
           currentPrice: signal.price,
@@ -219,7 +273,10 @@ export const useAdvancedTradingSystem = (
         entryTime: Date.now()
       })));
 
-      console.log(`Advanced signal executed: ${signal.action} ${signal.symbol} at ${signal.price} (Probability: ${prediction.probability.toFixed(2)})`);
+      console.log(`[Trading Bot] ✅ Position opened: ${signal.action} ${signal.symbol} at ${signal.price.toFixed(2)} (ID: ${positionId})`);
+      console.log(`[Trading Bot] Position details - Probability: ${prediction.probability.toFixed(3)}, Confidence: ${prediction.confidence.toFixed(3)}, Expected return: ${prediction.expectedReturn.toFixed(2)}%`);
+    } else {
+      console.error(`[Trading Bot] ❌ Failed to create position for ${signal.action} signal`);
     }
   }, [onAddPosition]);
 
@@ -236,33 +293,35 @@ export const useAdvancedTradingSystem = (
       let shouldExit = false;
       let exitReason = '';
 
-      // Time-based exit
-      if (holdingTime >= prediction.timeHorizon) {
+      // More aggressive time-based exit - reduced from prediction.timeHorizon
+      const maxHoldTime = Math.min(prediction.timeHorizon, 180); // Max 3 minutes
+      if (holdingTime >= maxHoldTime) {
         shouldExit = true;
         exitReason = 'Time horizon reached';
       }
 
       // Profit target (dynamic based on expected return)
-      const profitTarget = Math.abs(prediction.expectedReturn) / 100;
+      const profitTarget = Math.max(Math.abs(prediction.expectedReturn) / 100, 0.005); // Min 0.5% profit
       if (priceChange >= profitTarget) {
         shouldExit = true;
         exitReason = 'Profit target hit';
       }
 
       // Stop loss (adaptive based on risk score)
-      const stopLoss = -prediction.riskScore * 0.02; // Max 2% loss
+      const stopLoss = -Math.max(prediction.riskScore * 0.015, 0.003); // Min 0.3% max loss
       if (priceChange <= stopLoss) {
         shouldExit = true;
         exitReason = 'Stop loss triggered';
       }
 
-      // Emergency exit on extreme conditions
-      if (holdingTime > 300 || Math.abs(priceChange) > 0.05) { // 5 minutes or 5% move
+      // Emergency exit on extreme conditions or long holds
+      if (holdingTime > 240 || Math.abs(priceChange) > 0.03) { // 4 minutes or 3% move
         shouldExit = true;
         exitReason = 'Emergency exit';
       }
 
       if (shouldExit) {
+        console.log(`[Trading Bot] Closing position ${positionId}: ${exitReason} (Return: ${(priceChange * 100).toFixed(2)}%, Hold time: ${holdingTime.toFixed(0)}s)`);
         exitPosition(positionId, currentPrice, priceChange, exitReason);
       }
     });
@@ -287,12 +346,12 @@ export const useAdvancedTradingSystem = (
         profitLoss: actualReturn * positionData.position.entryPrice * positionData.position.size,
         holdingTime: (Date.now() - positionData.entryTime) / 1000,
         prediction: positionData.prediction,
-        actualReturn: actualReturn * 100, // Convert to percentage
+        actualReturn: actualReturn * 100,
         success: actualReturn > 0
       };
 
       aiModel.current.updateModel(outcome);
-      console.log(`Position closed: ${reason}, Return: ${(actualReturn * 100).toFixed(2)}%`);
+      console.log(`[Trading Bot] ✅ Position closed: ${reason}, Return: ${(actualReturn * 100).toFixed(2)}%, Learning updated`);
     }
 
     setActivePositions(prev => {
@@ -307,6 +366,7 @@ export const useAdvancedTradingSystem = (
   }, []);
 
   const updateConfig = useCallback((newConfig: Partial<AdvancedTradingConfig>) => {
+    console.log(`[Trading Bot] Config updated:`, newConfig);
     setConfig(prev => ({ ...prev, ...newConfig }));
   }, []);
 

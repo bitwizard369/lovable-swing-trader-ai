@@ -52,37 +52,46 @@ export class AdvancedTechnicalAnalysis {
     }
   }
   
+  getPriceHistoryLength(): number {
+    return this.priceHistory.length;
+  }
+  
   calculateAdvancedIndicators(): AdvancedIndicators | null {
-    if (this.priceHistory.length < 50) return null;
+    if (this.priceHistory.length < 20) {
+      console.log(`[Technical Analysis] Insufficient data: ${this.priceHistory.length}/20 required`);
+      return null;
+    }
     
     const prices = this.priceHistory;
     const volumes = this.volumeHistory;
     
+    console.log(`[Technical Analysis] Calculating indicators with ${prices.length} price points`);
+    
     return {
       // Trend Indicators
       sma_9: this.calculateSMA(prices, 9),
-      sma_21: this.calculateSMA(prices, 21),
+      sma_21: this.calculateSMA(prices, Math.min(21, prices.length)),
       ema_12: this.calculateEMA(prices, 12),
-      ema_26: this.calculateEMA(prices, 26),
+      ema_26: this.calculateEMA(prices, Math.min(26, prices.length)),
       macd: this.calculateMACD(prices).macd,
       macd_signal: this.calculateMACD(prices).signal,
       macd_histogram: this.calculateMACD(prices).histogram,
       
       // Momentum Indicators
-      rsi_14: this.calculateRSI(prices, 14),
+      rsi_14: this.calculateRSI(prices, Math.min(14, prices.length - 1)),
       stoch_k: this.calculateStochastic(prices).k,
       stoch_d: this.calculateStochastic(prices).d,
-      williams_r: this.calculateWilliamsR(prices, 14),
+      williams_r: this.calculateWilliamsR(prices, Math.min(14, prices.length)),
       
       // Volatility Indicators
       bollinger_upper: this.calculateBollingerBands(prices).upper,
       bollinger_middle: this.calculateBollingerBands(prices).middle,
       bollinger_lower: this.calculateBollingerBands(prices).lower,
-      atr: this.calculateATR(prices, 14),
+      atr: this.calculateATR(prices, Math.min(14, prices.length - 1)),
       
       // Volume Indicators
-      volume_sma: this.calculateSMA(volumes, 20),
-      volume_ratio: volumes[volumes.length - 1] / this.calculateSMA(volumes, 20),
+      volume_sma: this.calculateSMA(volumes, Math.min(20, volumes.length)),
+      volume_ratio: volumes.length > 0 ? volumes[volumes.length - 1] / this.calculateSMA(volumes, Math.min(20, volumes.length)) : 1,
       
       // Market Structure
       support_level: this.findSupportLevel(prices),
@@ -93,8 +102,8 @@ export class AdvancedTechnicalAnalysis {
   
   getMarketContext(): MarketContext {
     const currentHour = new Date().getUTCHours();
-    const atr = this.calculateATR(this.priceHistory, 14);
-    const avgPrice = this.calculateSMA(this.priceHistory, 20);
+    const atr = this.priceHistory.length > 14 ? this.calculateATR(this.priceHistory, 14) : 0;
+    const avgPrice = this.priceHistory.length > 0 ? this.calculateSMA(this.priceHistory, Math.min(20, this.priceHistory.length)) : 0;
     
     return {
       volatilityRegime: this.getVolatilityRegime(atr, avgPrice),
@@ -105,18 +114,18 @@ export class AdvancedTechnicalAnalysis {
   }
   
   private calculateSMA(data: number[], period: number): number {
-    if (data.length < period) return 0;
+    if (data.length < period || period <= 0) return data.length > 0 ? data[data.length - 1] : 0;
     const slice = data.slice(-period);
     return slice.reduce((sum, val) => sum + val, 0) / period;
   }
   
   private calculateEMA(data: number[], period: number): number {
-    if (data.length < period) return 0;
+    if (data.length < period || period <= 0) return data.length > 0 ? data[data.length - 1] : 0;
     
     const multiplier = 2 / (period + 1);
-    let ema = this.calculateSMA(data.slice(0, period), period);
+    let ema = this.calculateSMA(data.slice(0, Math.min(period, data.length)), Math.min(period, data.length));
     
-    for (let i = period; i < data.length; i++) {
+    for (let i = Math.min(period, data.length); i < data.length; i++) {
       ema = (data[i] * multiplier) + (ema * (1 - multiplier));
     }
     
@@ -125,16 +134,17 @@ export class AdvancedTechnicalAnalysis {
   
   private calculateMACD(data: number[]) {
     const ema12 = this.calculateEMA(data, 12);
-    const ema26 = this.calculateEMA(data, 26);
+    const ema26 = this.calculateEMA(data, Math.min(26, data.length));
     const macd = ema12 - ema26;
-    const signal = this.calculateEMA([...Array(9).fill(0), macd], 9);
+    // Simplified signal calculation for shorter data
+    const signal = macd * 0.8; // Simplified instead of EMA of MACD
     const histogram = macd - signal;
     
     return { macd, signal, histogram };
   }
   
   private calculateRSI(data: number[], period: number): number {
-    if (data.length < period + 1) return 50;
+    if (data.length < period + 1 || period <= 0) return 50;
     
     const gains: number[] = [];
     const losses: number[] = [];
@@ -154,9 +164,9 @@ export class AdvancedTechnicalAnalysis {
   }
   
   private calculateStochastic(data: number[]) {
-    if (data.length < 14) return { k: 50, d: 50 };
+    const period = Math.min(14, data.length);
+    if (period < 2) return { k: 50, d: 50 };
     
-    const period = 14;
     const recentData = data.slice(-period);
     const high = Math.max(...recentData);
     const low = Math.min(...recentData);
@@ -180,7 +190,7 @@ export class AdvancedTechnicalAnalysis {
   }
   
   private calculateBollingerBands(data: number[]) {
-    const period = 20;
+    const period = Math.min(20, data.length);
     const multiplier = 2;
     
     const sma = this.calculateSMA(data, period);
@@ -214,6 +224,7 @@ export class AdvancedTechnicalAnalysis {
   }
   
   private calculateStandardDeviation(data: number[]): number {
+    if (data.length === 0) return 0;
     const mean = data.reduce((sum, val) => sum + val, 0) / data.length;
     const squaredDiffs = data.map(val => Math.pow(val - mean, 2));
     const avgSquaredDiff = squaredDiffs.reduce((sum, val) => sum + val, 0) / data.length;
@@ -222,28 +233,29 @@ export class AdvancedTechnicalAnalysis {
   
   private findSupportLevel(data: number[]): number {
     // Simplified support level calculation
-    const recentLows = data.slice(-20);
+    const recentLows = data.slice(-Math.min(20, data.length));
     return Math.min(...recentLows);
   }
   
   private findResistanceLevel(data: number[]): number {
     // Simplified resistance level calculation
-    const recentHighs = data.slice(-20);
+    const recentHighs = data.slice(-Math.min(20, data.length));
     return Math.max(...recentHighs);
   }
   
   private calculateTrendStrength(data: number[]): number {
-    if (data.length < 20) return 0;
+    if (data.length < 12) return 0;
     
     const ema12 = this.calculateEMA(data, 12);
-    const ema26 = this.calculateEMA(data, 26);
+    const ema26 = this.calculateEMA(data, Math.min(26, data.length));
     const diff = Math.abs(ema12 - ema26);
-    const avgPrice = this.calculateSMA(data, 20);
+    const avgPrice = this.calculateSMA(data, Math.min(20, data.length));
     
-    return (diff / avgPrice) * 100;
+    return avgPrice > 0 ? (diff / avgPrice) * 100 : 0;
   }
   
   private getVolatilityRegime(atr: number, avgPrice: number): 'LOW' | 'MEDIUM' | 'HIGH' {
+    if (avgPrice === 0) return 'MEDIUM';
     const volatilityPercent = (atr / avgPrice) * 100;
     
     if (volatilityPercent < 0.5) return 'LOW';
@@ -252,10 +264,12 @@ export class AdvancedTechnicalAnalysis {
   }
   
   private getTrendDirection(): 'BULLISH' | 'BEARISH' | 'SIDEWAYS' {
-    if (this.priceHistory.length < 20) return 'SIDEWAYS';
+    if (this.priceHistory.length < 12) return 'SIDEWAYS';
     
     const ema12 = this.calculateEMA(this.priceHistory, 12);
-    const ema26 = this.calculateEMA(this.priceHistory, 26);
+    const ema26 = this.calculateEMA(this.priceHistory, Math.min(26, this.priceHistory.length));
+    
+    if (ema26 === 0) return 'SIDEWAYS';
     const diff = ((ema12 - ema26) / ema26) * 100;
     
     if (diff > 0.1) return 'BULLISH';
