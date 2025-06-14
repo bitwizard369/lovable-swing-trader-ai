@@ -1,6 +1,4 @@
-
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
-import { usePortfolio } from "@/hooks/usePortfolio";
 import { useTradingSignals } from "@/hooks/useTradingSignals";
 import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
@@ -23,21 +21,13 @@ const Index = () => {
   } = useBinanceWebSocket('btcusdt');
 
   const {
-    portfolio,
-    config,
-    updatePositionPrices,
-    addPosition,
-    closePosition,
-    canOpenPosition
-  } = usePortfolio();
-
-  const {
     signals,
     indicators: basicIndicators,
     latestSignal
   } = useTradingSignals('btcusdt', orderBook.bids, orderBook.asks);
 
   const {
+    portfolio,
     indicators: advancedIndicators,
     marketContext,
     prediction,
@@ -48,37 +38,8 @@ const Index = () => {
   } = useAdvancedTradingSystem(
     'btcusdt',
     orderBook.bids,
-    orderBook.asks,
-    addPosition,
-    closePosition
+    orderBook.asks
   );
-
-  // Update position prices when order book changes
-  useEffect(() => {
-    if (orderBook.bids.length > 0 && orderBook.asks.length > 0) {
-      const currentPrice = (orderBook.bids[0].price + orderBook.asks[0].price) / 2;
-      updatePositionPrices('btcusdt', currentPrice);
-    }
-  }, [orderBook, updatePositionPrices]);
-
-  const handleExecuteSignal = (signal: any) => {
-    const positionValue = signal.price * signal.quantity;
-    
-    if (canOpenPosition(positionValue)) {
-      addPosition({
-        symbol: signal.symbol,
-        side: signal.action,
-        size: signal.quantity,
-        entryPrice: signal.price,
-        currentPrice: signal.price,
-        timestamp: signal.timestamp
-      });
-      
-      console.log(`Executed ${signal.action} signal for ${signal.symbol} at ${signal.price}`);
-    } else {
-      console.log('Cannot execute signal: Risk limits exceeded');
-    }
-  };
 
   const modelPerformance = getModelPerformance();
 
@@ -158,7 +119,6 @@ const Index = () => {
                 <TradingSignals
                   signals={signals}
                   latestSignal={latestSignal}
-                  onExecuteSignal={handleExecuteSignal}
                 />
               </div>
             </div>

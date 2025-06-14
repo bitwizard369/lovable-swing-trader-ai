@@ -1,9 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
-import { TradingSignal, Position } from '@/types/trading';
+import { TradingSignal, Position, Portfolio, TradingConfig as BaseTradingConfig } from '@/types/trading';
 
-interface AdvancedTradingConfig {
+const initialPortfolio: Portfolio = {
+  totalBalance: 10000,
+  availableBalance: 10000,
+  positions: [],
+  totalPnL: 0,
+  dayPnL: 0,
+  equity: 10000
+};
+
+interface AdvancedTradingConfig extends BaseTradingConfig {
   minProbability: number;
   minConfidence: number;
   maxRiskScore: number;
@@ -15,17 +24,23 @@ interface AdvancedTradingConfig {
 export const useAdvancedTradingSystem = (
   symbol: string,
   bids: any[],
-  asks: any[],
-  onAddPosition: (position: any) => string,
-  onClosePosition: (id: string, price: number) => void
+  asks: any[]
 ) => {
+  const [portfolio, setPortfolio] = useState<Portfolio>(initialPortfolio);
+
   const [config, setConfig] = useState<AdvancedTradingConfig>({
-    minProbability: 0.55, // Lowered from 0.65
-    minConfidence: 0.50,  // Lowered from 0.60
-    maxRiskScore: 0.8,    // Increased from 0.7
+    minProbability: 0.55,
+    minConfidence: 0.50,
+    maxRiskScore: 0.8,
     adaptiveSizing: true,
     learningEnabled: true,
-    maxPositionsPerSymbol: 3
+    maxPositionsPerSymbol: 100, // Updated as requested
+    maxPositionSize: 1000,
+    maxDailyLoss: 500,
+    stopLossPercentage: 2,
+    takeProfitPercentage: 4,
+    maxOpenPositions: 100, // Updated as requested
+    riskPerTrade: 100
   });
 
   const [indicators, setIndicators] = useState<AdvancedIndicators | null>(null);
@@ -40,6 +55,97 @@ export const useAdvancedTradingSystem = (
   const technicalAnalysis = useRef(new AdvancedTechnicalAnalysis());
   const aiModel = useRef(new AIPredictionModel());
   const lastSignalTime = useRef(0);
+
+  const canOpenPosition = useCallback((positionValue: number): boolean => {
+    const openPositions = portfolio.positions.filter(p => p.status === 'OPEN').length;
+    
+    return (
+      portfolio.availableBalance >= positionValue &&
+      openPositions < config.maxOpenPositions &&
+      positionValue <= config.maxPositionSize &&
+      Math.abs(portfolio.dayPnL) < config.maxDailyLoss
+    );
+  }, [portfolio, config]);
+
+  const addPosition = useCallback((position: Omit<Position, 'id' | 'unrealizedPnL' | 'realizedPnL' | 'status'>): Position | null => {
+    const positionValue = position.size * position.entryPrice;
+    if (!canOpenPosition(positionValue)) {
+        console.error(`[Trading Bot] ❌ Cannot open position: Risk limits exceeded or insufficient funds.`);
+        return null;
+    }
+
+    const newPosition: Position = {
+      ...position,
+      id: Date.now().toString(),
+      unrealizedPnL: 0,
+      realizedPnL: 0,
+      status: 'OPEN'
+    };
+
+    setPortfolio(prev => ({
+        ...prev,
+        positions: [...prev.positions, newPosition],
+        availableBalance: prev.availableBalance - positionValue
+    }));
+
+    return newPosition;
+  }, [canOpenPosition]);
+
+  const closePosition = useCallback((positionId: string, closePrice: number) => {
+    setPortfolio(prev => {
+      const position = prev.positions.find(p => p.id === positionId);
+      if (!position || position.status === 'CLOSED') return prev;
+
+      const realizedPnL = position.side === 'BUY'
+        ? (closePrice - position.entryPrice) * position.size
+        : (position.entryPrice - closePrice) * position.size;
+
+      const positionValueAtClose = position.size * closePrice;
+
+      return {
+        ...prev,
+        positions: prev.positions.map(p =>
+          p.id === positionId
+            ? { ...p, status: 'CLOSED' as const, realizedPnL, currentPrice: closePrice }
+            : p
+        ),
+        availableBalance: prev.availableBalance + positionValueAtClose,
+        totalPnL: prev.totalPnL + realizedPnL,
+        dayPnL: prev.dayPnL + realizedPnL,
+      };
+    });
+  }, []);
+
+  const updatePositionPrices = useCallback((currentPrice: number) => {
+    setPortfolio(prev => {
+        const updatedPositions = prev.positions.map(position => {
+            if (position.symbol === symbol && position.status === 'OPEN') {
+                const unrealizedPnL = position.side === 'BUY'
+                    ? (currentPrice - position.entryPrice) * position.size
+                    : (position.entryPrice - currentPrice) * position.size;
+                return { ...position, currentPrice, unrealizedPnL };
+            }
+            return position;
+        });
+
+        const totalUnrealizedPnL = updatedPositions
+            .filter(p => p.status === 'OPEN')
+            .reduce((sum, p) => sum + p.unrealizedPnL, 0);
+
+        return {
+            ...prev,
+            positions: updatedPositions,
+            equity: prev.totalBalance + prev.totalPnL + totalUnrealizedPnL
+        };
+    });
+  }, [symbol]);
+
+  useEffect(() => {
+    if (bids.length > 0 && asks.length > 0) {
+      const currentPrice = (bids[0].price + asks[0].price) / 2;
+      updatePositionPrices(currentPrice);
+    }
+  }, [bids, asks, updatePositionPrices]);
 
   // Update technical analysis with new price data
   useEffect(() => {
@@ -118,6 +224,33 @@ export const useAdvancedTradingSystem = (
     };
   }, []);
 
+  const executeAdvancedSignal = useCallback((
+    signal: TradingSignal,
+    prediction: PredictionOutput
+  ) => {
+    console.log(`[Trading Bot] Executing signal: ${signal.action} ${signal.quantity} ${signal.symbol} at ${signal.price}`);
+    
+    const newPosition = addPosition({
+      symbol: signal.symbol,
+      side: signal.action,
+      size: signal.quantity,
+      entryPrice: signal.price,
+      currentPrice: signal.price,
+      timestamp: signal.timestamp
+    });
+
+    if (newPosition) {
+      setActivePositions(prev => new Map(prev.set(newPosition.id, {
+        position: newPosition,
+        prediction,
+        entryTime: Date.now()
+      })));
+
+      console.log(`[Trading Bot] ✅ Position opened: ${signal.action} ${signal.symbol} at ${signal.price.toFixed(2)} (ID: ${newPosition.id})`);
+      console.log(`[Trading Bot] Position details - Probability: ${prediction.probability.toFixed(3)}, Confidence: ${prediction.confidence.toFixed(3)}, Expected return: ${prediction.expectedReturn.toFixed(2)}%`);
+    }
+  }, [addPosition]);
+
   const generateAdvancedSignal = useCallback((
     currentPrice: number,
     indicators: AdvancedIndicators,
@@ -173,7 +306,7 @@ export const useAdvancedTradingSystem = (
       console.log(`  - Risk Score: ${newPrediction.riskScore.toFixed(3)} (max: ${dynamicConfig.maxRiskScore})`);
       console.log(`  - Active Positions: ${activePositions.size} (max: ${dynamicConfig.maxPositionsPerSymbol})`);
     }
-  }, [config, getDynamicConfig, activePositions, marketContext]);
+  }, [config, getDynamicConfig, activePositions, marketContext, executeAdvancedSignal]);
 
   const calculateOrderBookImbalance = useCallback((): number => {
     if (bids.length === 0 || asks.length === 0) return 0;
@@ -287,46 +420,6 @@ export const useAdvancedTradingSystem = (
     return reasons.join(', ') || `AI prediction (${(prediction.probability * 100).toFixed(1)}% probability)`;
   }, [marketContext]);
 
-  const executeAdvancedSignal = useCallback((
-    signal: TradingSignal,
-    prediction: PredictionOutput
-  ) => {
-    console.log(`[Trading Bot] Executing signal: ${signal.action} ${signal.quantity} ${signal.symbol} at ${signal.price}`);
-    
-    const positionId = onAddPosition({
-      symbol: signal.symbol,
-      side: signal.action,
-      size: signal.quantity,
-      entryPrice: signal.price,
-      currentPrice: signal.price,
-      timestamp: signal.timestamp
-    });
-
-    if (positionId) {
-      setActivePositions(prev => new Map(prev.set(positionId, {
-        position: {
-          id: positionId,
-          symbol: signal.symbol,
-          side: signal.action as 'BUY' | 'SELL',
-          size: signal.quantity,
-          entryPrice: signal.price,
-          currentPrice: signal.price,
-          unrealizedPnL: 0,
-          realizedPnL: 0,
-          timestamp: signal.timestamp,
-          status: 'OPEN' as const
-        },
-        prediction,
-        entryTime: Date.now()
-      })));
-
-      console.log(`[Trading Bot] ✅ Position opened: ${signal.action} ${signal.symbol} at ${signal.price.toFixed(2)} (ID: ${positionId})`);
-      console.log(`[Trading Bot] Position details - Probability: ${prediction.probability.toFixed(3)}, Confidence: ${prediction.confidence.toFixed(3)}, Expected return: ${prediction.expectedReturn.toFixed(2)}%`);
-    } else {
-      console.error(`[Trading Bot] ❌ Failed to create position for ${signal.action} signal`);
-    }
-  }, [onAddPosition]);
-
   const checkExitConditions = useCallback((currentPrice: number) => {
     const now = Date.now();
     
@@ -383,7 +476,7 @@ export const useAdvancedTradingSystem = (
     const positionData = activePositions.get(positionId);
     if (!positionData) return;
 
-    onClosePosition(positionId, exitPrice);
+    closePosition(positionId, exitPrice);
 
     // Create trade outcome for learning
     if (config.learningEnabled) {
@@ -406,7 +499,7 @@ export const useAdvancedTradingSystem = (
       updated.delete(positionId);
       return updated;
     });
-  }, [activePositions, onClosePosition, config.learningEnabled]);
+  }, [activePositions, closePosition, config.learningEnabled]);
 
   const getModelPerformance = useCallback(() => {
     return aiModel.current.getModelPerformance();
@@ -418,6 +511,7 @@ export const useAdvancedTradingSystem = (
   }, []);
 
   return {
+    portfolio,
     indicators,
     marketContext,
     prediction,
