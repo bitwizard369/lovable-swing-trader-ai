@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -228,6 +229,11 @@ export const useAdvancedTradingSystem = (
     signal: TradingSignal,
     prediction: PredictionOutput
   ) => {
+    if (signal.action === 'HOLD') {
+      console.warn(`[Trading Bot] ⚠️ Attempted to execute a 'HOLD' signal. This should not happen.`);
+      return;
+    }
+
     console.log(`[Trading Bot] Executing signal: ${signal.action} ${signal.quantity} ${signal.symbol} at ${signal.price}`);
     
     const newPosition = addPosition({
