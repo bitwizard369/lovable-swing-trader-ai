@@ -114,12 +114,12 @@ export const AdvancedTradingDashboard = ({
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm">Trend Direction:</span>
+                  <span className="text-sm">Market Regime:</span>
                   <Badge variant={
-                    marketContext.trendDirection === 'BULLISH' ? 'default' :
-                    marketContext.trendDirection === 'BEARISH' ? 'destructive' : 'secondary'
+                    marketContext.marketRegime.includes('BULL') ? 'default' :
+                    marketContext.marketRegime.includes('BEAR') ? 'destructive' : 'secondary'
                   }>
-                    {marketContext.trendDirection}
+                    {marketContext.marketRegime.replace(/_/g, ' ')}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">

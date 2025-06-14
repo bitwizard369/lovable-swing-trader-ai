@@ -54,7 +54,7 @@ export const useAdvancedTradingSystem = (
       const newIndicators = technicalAnalysis.current.calculateAdvancedIndicators();
       const newMarketContext = technicalAnalysis.current.getMarketContext();
       
-      console.log(`[Trading Bot] Indicators available: ${!!newIndicators}, Market context: ${newMarketContext?.trendDirection}`);
+      console.log(`[Trading Bot] Indicators available: ${!!newIndicators}, Market context: ${newMarketContext?.marketRegime}`);
       
       setIndicators(newIndicators);
       setMarketContext(newMarketContext);
@@ -265,9 +265,6 @@ export const useAdvancedTradingSystem = (
     }
     if (prediction.features.volatility < 0.4) {
       reasons.push('Low volatility environment');
-    }
-    if (marketContext?.trendDirection !== 'SIDEWAYS') {
-      reasons.push(`${marketContext?.trendDirection.toLowerCase()} trend`);
     }
     
     // Add more specific reasons
