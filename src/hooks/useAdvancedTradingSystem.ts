@@ -346,22 +346,22 @@ export const useAdvancedTradingSystem = (
     let action: 'BUY' | 'SELL' | 'HOLD';
     
     // More aggressive probability thresholds
-    if (prediction.probability > 0.55) { // Lowered from 0.6
+    if (prediction.probability > 0.52) { // Lowered from 0.55
       action = 'BUY';
-    } else if (prediction.probability < 0.45) { // Raised from 0.4
+    } else if (prediction.probability < 0.48) { // Raised from 0.45
       action = 'SELL';
     } else {
       action = 'HOLD';
     }
 
     // Override HOLD decision in trending markets with good confidence
-    if (action === 'HOLD' && prediction.confidence > 0.6) {
-      if ((marketContext?.marketRegime === 'STRONG_BULL' || marketContext?.marketRegime === 'WEAK_BULL') && prediction.probability > 0.52) {
+    if (action === 'HOLD' && prediction.confidence >= 0.6) { // Changed from > 0.6
+      if ((marketContext?.marketRegime === 'STRONG_BULL' || marketContext?.marketRegime === 'WEAK_BULL') && prediction.probability > 0.51) { // Adjusted from 0.52
         action = 'BUY';
-        console.log(`[Trading Bot] Overriding HOLD to BUY due to bullish regime`);
-      } else if ((marketContext?.marketRegime === 'STRONG_BEAR' || marketContext?.marketRegime === 'WEAK_BEAR') && prediction.probability < 0.48) {
+        console.log(`[Trading Bot] Overriding HOLD to BUY due to bullish regime and marginal probability`);
+      } else if ((marketContext?.marketRegime === 'STRONG_BEAR' || marketContext?.marketRegime === 'WEAK_BEAR') && prediction.probability < 0.49) { // Adjusted from 0.48
         action = 'SELL';
-        console.log(`[Trading Bot] Overriding HOLD to SELL due to bearish regime`);
+        console.log(`[Trading Bot] Overriding HOLD to SELL due to bearish regime and marginal probability`);
       }
     }
 

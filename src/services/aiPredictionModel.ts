@@ -146,7 +146,7 @@ export class AIPredictionModel {
     score += features.orderbook_imbalance * this.modelWeights['imbalance'];
     
     // Add small positive bias to encourage more trading
-    score += 0.05;
+    score += 0.10; // Increased from 0.05
     
     return score;
   }
