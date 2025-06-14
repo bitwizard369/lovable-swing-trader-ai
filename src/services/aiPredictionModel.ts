@@ -59,7 +59,7 @@ export class AIPredictionModel {
     const probability = this.sigmoidActivation(rawScore);
     
     const confidence = this.calculateConfidence(features, input.marketContext);
-    const expectedReturn = this.estimateExpectedReturn(probability, input.indicators);
+    const expectedReturn = this.estimateExpectedReturn(probability, confidence, input.indicators);
     const timeHorizon = this.estimateTimeHorizon(input.marketContext, input.indicators);
     const riskScore = this.calculateRiskScore(input);
     
@@ -189,11 +189,22 @@ export class AIPredictionModel {
     return Math.max(0.3, Math.min(0.95, confidence));
   }
   
-  private estimateExpectedReturn(probability: number, indicators: AdvancedIndicators): number {
-    const baseReturn = (probability - 0.5) * 5; // Increased multiplier for more aggressive targets
-    const volatilityMultiplier = indicators.bollinger_middle > 0 ? indicators.atr / indicators.bollinger_middle : 0.01;
+  private estimateExpectedReturn(probability: number, confidence: number, indicators: AdvancedIndicators): number {
+    if (indicators.bollinger_middle <= 0) {
+        console.warn(`[AI Model] Invalid bollinger_middle value: ${indicators.bollinger_middle} for expected return calculation.`);
+        return 0;
+    }
+
+    // Potential return is based on reaching one of the Bollinger Bands from the middle.
+    const potentialReturn = (indicators.bollinger_upper - indicators.bollinger_lower) / 2;
+    const potentialReturnPercent = (potentialReturn / indicators.bollinger_middle) * 100;
+
+    // The expected return is the potential return scaled by the model's confidence.
+    const expectedReturn = potentialReturnPercent * confidence;
     
-    return baseReturn * volatilityMultiplier * 200; // Increased multiplier
+    console.log(`[AI Model] Expected Return Calc: potential=${potentialReturnPercent.toFixed(3)}%, confidence=${confidence.toFixed(3)}, final=${expectedReturn.toFixed(3)}%`);
+
+    return expectedReturn;
   }
   
   private estimateTimeHorizon(marketContext: MarketContext, indicators: AdvancedIndicators): number {
