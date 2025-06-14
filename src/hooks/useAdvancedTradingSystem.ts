@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -98,8 +97,10 @@ export const useAdvancedTradingSystem = (
     // Generate signal if conditions are met
     if (shouldGenerateSignal(newPrediction)) {
       const signal = createTradingSignal(currentPrice, newPrediction, indicators);
-      executeAdvancedSignal(signal, newPrediction);
-      lastSignalTime.current = now;
+      if (signal) { // Only execute if we have a valid trading signal (not HOLD)
+        executeAdvancedSignal(signal, newPrediction);
+        lastSignalTime.current = now;
+      }
     }
   }, [config]);
 
@@ -127,8 +128,24 @@ export const useAdvancedTradingSystem = (
     price: number,
     prediction: PredictionOutput,
     indicators: AdvancedIndicators
-  ): TradingSignal => {
-    const action = prediction.probability > 0.5 ? 'BUY' : 'SELL';
+  ): TradingSignal | null => {
+    // Determine action based on prediction probability
+    // Only return a signal if we want to BUY or SELL, not HOLD
+    let action: 'BUY' | 'SELL' | 'HOLD';
+    
+    if (prediction.probability > 0.6) {
+      action = 'BUY';
+    } else if (prediction.probability < 0.4) {
+      action = 'SELL';
+    } else {
+      action = 'HOLD';
+    }
+
+    // If action is HOLD, don't create a trading signal
+    if (action === 'HOLD') {
+      return null;
+    }
+
     const baseQuantity = 0.01;
     
     // Adaptive position sizing based on confidence and Kelly criterion
@@ -140,7 +157,7 @@ export const useAdvancedTradingSystem = (
 
     return {
       symbol,
-      action,
+      action, // This will now only be 'BUY' or 'SELL'
       confidence: prediction.confidence,
       price,
       quantity,
@@ -177,7 +194,7 @@ export const useAdvancedTradingSystem = (
   ) => {
     const positionId = onAddPosition({
       symbol: signal.symbol,
-      side: signal.action,
+      side: signal.action, // Now guaranteed to be 'BUY' or 'SELL'
       size: signal.quantity,
       entryPrice: signal.price,
       currentPrice: signal.price,
@@ -189,7 +206,7 @@ export const useAdvancedTradingSystem = (
         position: {
           id: positionId,
           symbol: signal.symbol,
-          side: signal.action,
+          side: signal.action as 'BUY' | 'SELL', // Type assertion since we know it's not HOLD
           size: signal.quantity,
           entryPrice: signal.price,
           currentPrice: signal.price,
