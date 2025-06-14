@@ -1,9 +1,8 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Brain, TrendingUp, TrendingDown, Target, Shield, Clock, BarChart3 } from "lucide-react";
+import { Brain, Target, BarChart3 } from "lucide-react";
 import { AdvancedIndicators, MarketContext } from "@/services/advancedTechnicalAnalysis";
 import { PredictionOutput } from "@/services/aiPredictionModel";
 
@@ -11,7 +10,6 @@ interface AdvancedTradingDashboardProps {
   indicators: AdvancedIndicators | null;
   marketContext: MarketContext | null;
   prediction: PredictionOutput | null;
-  activePositions: any[];
   modelPerformance: any;
   onConfigUpdate: (config: any) => void;
 }
@@ -20,7 +18,6 @@ export const AdvancedTradingDashboard = ({
   indicators,
   marketContext,
   prediction,
-  activePositions,
   modelPerformance,
   onConfigUpdate
 }: AdvancedTradingDashboardProps) => {
@@ -222,59 +219,6 @@ export const AdvancedTradingDashboard = ({
           </div>
         </CardContent>
       </Card>
-
-      {/* Active AI Positions */}
-      {activePositions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Active AI Positions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {activePositions.map((data, index) => (
-                <div key={index} className="border rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={data.position.side === 'BUY' ? 'default' : 'destructive'}>
-                        {data.position.side}
-                      </Badge>
-                      <span className="font-medium">{data.position.symbol.toUpperCase()}</span>
-                      <span className="text-sm text-muted-foreground">
-                        Size: {data.position.size.toFixed(6)}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm text-muted-foreground">
-                        Probability: {formatPercent(data.prediction.probability)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Expected: {data.prediction.expectedReturn.toFixed(2)}%
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Entry Price</p>
-                      <p className="font-mono">{formatPrice(data.position.entryPrice)}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Time Horizon</p>
-                      <p className="font-mono">{data.prediction.timeHorizon}s</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Risk Score</p>
-                      <p className="font-mono">{formatPercent(data.prediction.riskScore)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 };

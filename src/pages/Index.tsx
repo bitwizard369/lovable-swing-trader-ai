@@ -71,7 +71,10 @@ const Index = () => {
                   onCheckHealth={checkAPIHealth}
                 />
                 
-                <Portfolio portfolio={portfolio} />
+                <Portfolio 
+                  portfolio={portfolio} 
+                  activePositions={activePositions}
+                />
               </div>
 
               {/* Right columns - Advanced Trading Dashboard */}
@@ -80,7 +83,6 @@ const Index = () => {
                   indicators={advancedIndicators}
                   marketContext={marketContext}
                   prediction={prediction}
-                  activePositions={activePositions}
                   modelPerformance={modelPerformance}
                   onConfigUpdate={updateConfig}
                 />
@@ -101,7 +103,10 @@ const Index = () => {
                   onCheckHealth={checkAPIHealth}
                 />
                 
-                <Portfolio portfolio={portfolio} />
+                <Portfolio 
+                  portfolio={portfolio} 
+                  activePositions={activePositions}
+                />
               </div>
 
               {/* Middle column - Order Book */}
