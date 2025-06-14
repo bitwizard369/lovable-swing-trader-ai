@@ -32,7 +32,7 @@ export interface AdvancedIndicators {
 
 export interface MarketContext {
   volatilityRegime: 'LOW' | 'MEDIUM' | 'HIGH';
-  trendDirection: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+  marketRegime: 'STRONG_BULL' | 'WEAK_BULL' | 'STRONG_BEAR' | 'WEAK_BEAR' | 'SIDEWAYS_VOLATILE' | 'SIDEWAYS_QUIET';
   marketHour: 'LONDON' | 'NEW_YORK' | 'ASIA' | 'OVERLAP' | 'LOW_LIQUIDITY';
   newsImpact: 'HIGH' | 'MEDIUM' | 'LOW';
 }
@@ -107,7 +107,7 @@ export class AdvancedTechnicalAnalysis {
     
     return {
       volatilityRegime: this.getVolatilityRegime(atr, avgPrice),
-      trendDirection: this.getTrendDirection(),
+      marketRegime: this.getMarketRegime(),
       marketHour: this.getMarketHour(currentHour),
       newsImpact: 'LOW' // Placeholder - would integrate with news API
     };
@@ -263,18 +263,33 @@ export class AdvancedTechnicalAnalysis {
     return 'HIGH';
   }
   
-  private getTrendDirection(): 'BULLISH' | 'BEARISH' | 'SIDEWAYS' {
-    if (this.priceHistory.length < 12) return 'SIDEWAYS';
+  private getMarketRegime(): 'STRONG_BULL' | 'WEAK_BULL' | 'STRONG_BEAR' | 'WEAK_BEAR' | 'SIDEWAYS_VOLATILE' | 'SIDEWAYS_QUIET' {
+    if (this.priceHistory.length < 26) return 'SIDEWAYS_QUIET';
+
+    const ema9 = this.calculateEMA(this.priceHistory, 9);
+    const ema21 = this.calculateEMA(this.priceHistory, 21);
+    const trendStrength = this.calculateTrendStrength(this.priceHistory);
+    const { upper, lower, middle } = this.calculateBollingerBands(this.priceHistory);
+    const bollingerWidth = middle > 0 ? (upper - lower) / middle * 100 : 0;
+
+    const isBullish = ema9 > ema21;
+    const isBearish = ema9 < ema21;
+
+    if (isBullish) {
+        if (trendStrength > 1.0) return 'STRONG_BULL';
+        return 'WEAK_BULL';
+    }
+
+    if (isBearish) {
+        if (trendStrength > 1.0) return 'STRONG_BEAR';
+        return 'WEAK_BEAR';
+    }
     
-    const ema12 = this.calculateEMA(this.priceHistory, 12);
-    const ema26 = this.calculateEMA(this.priceHistory, Math.min(26, this.priceHistory.length));
-    
-    if (ema26 === 0) return 'SIDEWAYS';
-    const diff = ((ema12 - ema26) / ema26) * 100;
-    
-    if (diff > 0.1) return 'BULLISH';
-    if (diff < -0.1) return 'BEARISH';
-    return 'SIDEWAYS';
+    if (bollingerWidth > 4) {
+        return 'SIDEWAYS_VOLATILE';
+    }
+
+    return 'SIDEWAYS_QUIET';
   }
   
   private getMarketHour(hour: number): 'LONDON' | 'NEW_YORK' | 'ASIA' | 'OVERLAP' | 'LOW_LIQUIDITY' {

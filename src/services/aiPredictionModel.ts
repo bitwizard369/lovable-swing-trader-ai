@@ -36,23 +36,11 @@ export interface TradeOutcome {
 export class AIPredictionModel {
   private trainingData: TradeOutcome[] = [];
   private modelWeights: { [key: string]: number } = {
-    // Technical indicators - increased weights for faster decisions
-    'rsi_signal': 0.18,
-    'macd_signal': 0.15,
-    'bollinger_position': 0.12,
-    'trend_strength': 0.10,
-    
-    // Market context
-    'volatility_regime': 0.08,
-    'market_hour': 0.06,
-    'trend_direction': 0.10,
-    
-    // Order book
+    'technical': 0.30,
+    'momentum': 0.20,
+    'volatility_regime': 0.10,
+    'market_structure': 0.25,
     'imbalance': 0.15,
-    'spread': 0.03,
-    
-    // Momentum
-    'price_momentum': 0.03
   };
   
   private performanceMetrics = {
@@ -137,12 +125,13 @@ export class AIPredictionModel {
     // Market structure features
     const supportResistanceStrength = this.calculateSRStrength(indicators);
     const marketHourScore = this.getMarketHourScore(marketContext.marketHour);
+    const marketRegimeScore = this.getMarketRegimeScore(marketContext.marketRegime);
     
     return {
       technical: (rsiSignal + macdSignal + bollingerPosition + trendStrength) / 4,
       momentum: (priceMomentum + volumeMomentum) / 2,
       volatility: (volatilityScore + atrNormalized) / 2,
-      market_structure: (supportResistanceStrength + marketHourScore) / 2,
+      market_structure: (supportResistanceStrength + marketHourScore + marketRegimeScore) / 3,
       orderbook_imbalance: Math.tanh(orderBookImbalance * 10) // Increased sensitivity
     };
   }
@@ -150,15 +139,14 @@ export class AIPredictionModel {
   private calculateRawScore(features: any): number {
     let score = 0;
     
-    // Apply weighted feature combination with bias towards action
-    score += features.technical * this.modelWeights['rsi_signal'];
-    score += features.momentum * this.modelWeights['price_momentum'];
+    score += features.technical * this.modelWeights['technical'];
+    score += features.momentum * this.modelWeights['momentum'];
     score += features.volatility * this.modelWeights['volatility_regime'];
-    score += features.market_structure * this.modelWeights['market_hour'];
+    score += features.market_structure * this.modelWeights['market_structure'];
     score += features.orderbook_imbalance * this.modelWeights['imbalance'];
     
     // Add small positive bias to encourage more trading
-    score += 0.1;
+    score += 0.05;
     
     return score;
   }
@@ -168,31 +156,44 @@ export class AIPredictionModel {
   }
   
   private calculateConfidence(features: any, marketContext: MarketContext): number {
-    let confidence = 0.6; // Start with higher base confidence
-    
-    // Higher confidence in trending markets
-    if (marketContext.trendDirection !== 'SIDEWAYS') {
-      confidence += 0.2;
+    let confidence = 0.5; // Start with a more neutral base confidence
+
+    // Adjust confidence based on market regime
+    switch (marketContext.marketRegime) {
+        case 'STRONG_BULL':
+        case 'STRONG_BEAR':
+            confidence += 0.25;
+            break;
+        case 'WEAK_BULL':
+        case 'WEAK_BEAR':
+            confidence += 0.1;
+            break;
+        case 'SIDEWAYS_VOLATILE':
+            confidence -= 0.15;
+            break;
+        case 'SIDEWAYS_QUIET':
+            confidence -= 0.2;
+            break;
     }
     
-    // Lower confidence in high volatility (but not as much)
+    // Lower confidence in high volatility
     if (marketContext.volatilityRegime === 'HIGH') {
-      confidence -= 0.1; // Reduced penalty
+      confidence -= 0.1;
     }
     
     // Higher confidence with strong technical signals
-    if (Math.abs(features.technical) > 0.6) { // Lowered threshold
+    if (Math.abs(features.technical) > 0.6) {
       confidence += 0.15;
     }
     
-    return Math.max(0.3, Math.min(0.95, confidence)); // Higher minimum confidence
+    return Math.max(0.3, Math.min(0.95, confidence));
   }
   
   private estimateExpectedReturn(probability: number, indicators: AdvancedIndicators): number {
-    const baseReturn = (probability - 0.5) * 3; // Increased multiplier for more aggressive targets
+    const baseReturn = (probability - 0.5) * 5; // Increased multiplier for more aggressive targets
     const volatilityMultiplier = indicators.bollinger_middle > 0 ? indicators.atr / indicators.bollinger_middle : 0.01;
     
-    return baseReturn * volatilityMultiplier * 150; // Increased multiplier
+    return baseReturn * volatilityMultiplier * 200; // Increased multiplier
   }
   
   private estimateTimeHorizon(marketContext: MarketContext, indicators: AdvancedIndicators): number {
@@ -213,23 +214,36 @@ export class AIPredictionModel {
   
   private calculateRiskScore(input: PredictionInput): number {
     let risk = 0.4; // Lower base risk
+
+    // Adjust risk based on market regime
+    switch (input.marketContext.marketRegime) {
+        case 'STRONG_BULL':
+        case 'STRONG_BEAR':
+            risk -= 0.15; // Lower risk in strong trends
+            break;
+        case 'WEAK_BULL':
+        case 'WEAK_BEAR':
+            risk -= 0.05;
+            break;
+        case 'SIDEWAYS_VOLATILE':
+            risk += 0.2; // Higher risk in choppy markets
+            break;
+        case 'SIDEWAYS_QUIET':
+            risk += 0.05;
+            break;
+    }
     
     // Higher risk in high volatility
     if (input.marketContext.volatilityRegime === 'HIGH') {
-      risk += 0.2; // Reduced penalty
+      risk += 0.2;
     }
     
     // Higher risk with extreme RSI
-    if (input.indicators.rsi_14 < 25 || input.indicators.rsi_14 > 75) { // More extreme thresholds
+    if (input.indicators.rsi_14 < 25 || input.indicators.rsi_14 > 75) {
       risk += 0.15;
     }
     
-    // Lower risk in trending markets
-    if (input.marketContext.trendDirection !== 'SIDEWAYS') {
-      risk -= 0.15; // Increased benefit
-    }
-    
-    return Math.max(0.1, Math.min(0.8, risk)); // Lower maximum risk
+    return Math.max(0.1, Math.min(0.8, risk));
   }
   
   private retrainModel() {
@@ -318,6 +332,18 @@ export class AIPredictionModel {
     const range = indicators.resistance_level - indicators.support_level;
     const currentPrice = (indicators.support_level + indicators.resistance_level) / 2;
     return currentPrice > 0 ? Math.min(range / currentPrice, 0.1) * 10 : 0;
+  }
+  
+  private getMarketRegimeScore(regime: MarketContext['marketRegime']): number {
+    switch (regime) {
+      case 'STRONG_BULL': return 1.0;
+      case 'WEAK_BULL': return 0.6;
+      case 'STRONG_BEAR': return -1.0;
+      case 'WEAK_BEAR': return -0.6;
+      case 'SIDEWAYS_VOLATILE': return -0.2;
+      case 'SIDEWAYS_QUIET': return 0.0;
+      default: return 0;
+    }
   }
   
   private getMarketHourScore(hour: string): number {

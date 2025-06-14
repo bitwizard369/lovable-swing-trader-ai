@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -78,6 +77,47 @@ export const useAdvancedTradingSystem = (
     }
   }, [bids, asks, activePositions]);
 
+  const getDynamicConfig = useCallback((
+    baseConfig: AdvancedTradingConfig, 
+    marketContext: MarketContext | null
+  ): AdvancedTradingConfig => {
+    if (!marketContext) return baseConfig;
+
+    let probabilityAdjustment = 0;
+    let confidenceAdjustment = 0;
+    let riskAdjustment = 0;
+
+    switch (marketContext.marketRegime) {
+        case 'STRONG_BULL':
+        case 'STRONG_BEAR':
+            probabilityAdjustment = -0.03; // Lower threshold in strong trends
+            confidenceAdjustment = -0.05;
+            riskAdjustment = 0.05; // Allow slightly more risk
+            break;
+        case 'WEAK_BULL':
+        case 'WEAK_BEAR':
+            probabilityAdjustment = -0.01;
+            break;
+        case 'SIDEWAYS_VOLATILE':
+            probabilityAdjustment = 0.05; // Be more selective
+            confidenceAdjustment = 0.1;
+            riskAdjustment = -0.1; // Be more risk-averse
+            break;
+        case 'SIDEWAYS_QUIET':
+            probabilityAdjustment = 0.03;
+            confidenceAdjustment = 0.05;
+            riskAdjustment = -0.05;
+            break;
+    }
+    
+    return {
+        ...baseConfig,
+        minProbability: Math.max(0.51, baseConfig.minProbability + probabilityAdjustment),
+        minConfidence: Math.max(0.40, baseConfig.minConfidence + confidenceAdjustment),
+        maxRiskScore: Math.min(0.9, baseConfig.maxRiskScore + riskAdjustment)
+    };
+  }, []);
+
   const generateAdvancedSignal = useCallback((
     currentPrice: number,
     indicators: AdvancedIndicators,
@@ -110,10 +150,13 @@ export const useAdvancedTradingSystem = (
     const newPrediction = aiModel.current.predict(predictionInput);
     setPrediction(newPrediction);
 
+    const dynamicConfig = getDynamicConfig(config, marketContext);
+
     console.log(`[Trading Bot] Prediction - Probability: ${newPrediction.probability.toFixed(3)}, Confidence: ${newPrediction.confidence.toFixed(3)}, Risk: ${newPrediction.riskScore.toFixed(3)}`);
+    console.log(`[Trading Bot] Dynamic thresholds - Min Prob: ${dynamicConfig.minProbability.toFixed(2)}, Min Conf: ${dynamicConfig.minConfidence.toFixed(2)}, Max Risk: ${dynamicConfig.maxRiskScore.toFixed(2)}`);
 
     // Generate signal if conditions are met
-    if (shouldGenerateSignal(newPrediction)) {
+    if (shouldGenerateSignal(newPrediction, dynamicConfig)) {
       console.log(`[Trading Bot] Signal conditions met! Creating trading signal...`);
       const signal = createTradingSignal(currentPrice, newPrediction, indicators);
       if (signal) {
@@ -125,12 +168,12 @@ export const useAdvancedTradingSystem = (
       }
     } else {
       console.log(`[Trading Bot] Signal conditions not met:`);
-      console.log(`  - Probability: ${newPrediction.probability.toFixed(3)} (min: ${config.minProbability})`);
-      console.log(`  - Confidence: ${newPrediction.confidence.toFixed(3)} (min: ${config.minConfidence})`);
-      console.log(`  - Risk Score: ${newPrediction.riskScore.toFixed(3)} (max: ${config.maxRiskScore})`);
-      console.log(`  - Active Positions: ${activePositions.size} (max: ${config.maxPositionsPerSymbol})`);
+      console.log(`  - Probability: ${newPrediction.probability.toFixed(3)} (min: ${dynamicConfig.minProbability})`);
+      console.log(`  - Confidence: ${newPrediction.confidence.toFixed(3)} (min: ${dynamicConfig.minConfidence})`);
+      console.log(`  - Risk Score: ${newPrediction.riskScore.toFixed(3)} (max: ${dynamicConfig.maxRiskScore})`);
+      console.log(`  - Active Positions: ${activePositions.size} (max: ${dynamicConfig.maxPositionsPerSymbol})`);
     }
-  }, [config]);
+  }, [config, getDynamicConfig, activePositions, marketContext]);
 
   const calculateOrderBookImbalance = useCallback((): number => {
     if (bids.length === 0 || asks.length === 0) return 0;
@@ -143,14 +186,17 @@ export const useAdvancedTradingSystem = (
     return (topBidsVolume - topAsksVolume) / totalVolume;
   }, [bids, asks]);
 
-  const shouldGenerateSignal = useCallback((prediction: PredictionOutput): boolean => {
+  const shouldGenerateSignal = useCallback((
+    prediction: PredictionOutput, 
+    dynamicConfig: AdvancedTradingConfig
+  ): boolean => {
     return (
-      prediction.probability >= config.minProbability &&
-      prediction.confidence >= config.minConfidence &&
-      prediction.riskScore <= config.maxRiskScore &&
-      activePositions.size < config.maxPositionsPerSymbol
+      prediction.probability >= dynamicConfig.minProbability &&
+      prediction.confidence >= dynamicConfig.minConfidence &&
+      prediction.riskScore <= dynamicConfig.maxRiskScore &&
+      activePositions.size < dynamicConfig.maxPositionsPerSymbol
     );
-  }, [config, activePositions]);
+  }, [activePositions]);
 
   const createTradingSignal = useCallback((
     price: number,
@@ -171,12 +217,12 @@ export const useAdvancedTradingSystem = (
 
     // Override HOLD decision in trending markets with good confidence
     if (action === 'HOLD' && prediction.confidence > 0.6) {
-      if (marketContext?.trendDirection === 'BULLISH' && prediction.probability > 0.52) {
+      if ((marketContext?.marketRegime === 'STRONG_BULL' || marketContext?.marketRegime === 'WEAK_BULL') && prediction.probability > 0.52) {
         action = 'BUY';
-        console.log(`[Trading Bot] Overriding HOLD to BUY due to bullish trend`);
-      } else if (marketContext?.trendDirection === 'BEARISH' && prediction.probability < 0.48) {
+        console.log(`[Trading Bot] Overriding HOLD to BUY due to bullish regime`);
+      } else if ((marketContext?.marketRegime === 'STRONG_BEAR' || marketContext?.marketRegime === 'WEAK_BEAR') && prediction.probability < 0.48) {
         action = 'SELL';
-        console.log(`[Trading Bot] Overriding HOLD to SELL due to bearish trend`);
+        console.log(`[Trading Bot] Overriding HOLD to SELL due to bearish regime`);
       }
     }
 
@@ -235,6 +281,10 @@ export const useAdvancedTradingSystem = (
       reasons.push('bullish MACD');
     } else if (indicators.macd < indicators.macd_signal) {
       reasons.push('bearish MACD');
+    }
+    
+    if (marketContext?.marketRegime) {
+      reasons.push(`Market regime: ${marketContext.marketRegime.replace(/_/g, ' ').toLowerCase()}`);
     }
     
     return reasons.join(', ') || `AI prediction (${(prediction.probability * 100).toFixed(1)}% probability)`;
