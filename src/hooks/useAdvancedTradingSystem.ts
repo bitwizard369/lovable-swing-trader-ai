@@ -362,6 +362,57 @@ export const useAdvancedTradingSystem = (
     );
   }, [activePositions]);
 
+  const generateSignalReasoning = useCallback((
+    prediction: PredictionOutput,
+    indicators: AdvancedIndicators
+  ): string => {
+    const reasons: string[] = [];
+    
+    // Technical analysis reasons
+    if (prediction.features.technical > 0.6) {
+      reasons.push('strong technical signals');
+    } else if (prediction.features.technical < -0.6) {
+      reasons.push('bearish technical signals');
+    }
+    
+    if (prediction.features.momentum > 0.5) {
+      reasons.push('positive momentum');
+    } else if (prediction.features.momentum < -0.5) {
+      reasons.push('negative momentum');
+    }
+    
+    if (prediction.features.volatility < 0.4) {
+      reasons.push('low volatility environment');
+    } else if (prediction.features.volatility > 0.7) {
+      reasons.push('high volatility environment');
+    }
+    
+    // Specific indicator reasons
+    if (indicators.rsi_14 < 35) {
+      reasons.push('oversold RSI');
+    } else if (indicators.rsi_14 > 65) {
+      reasons.push('overbought RSI');
+    }
+    
+    if (indicators.macd > indicators.macd_signal) {
+      reasons.push('bullish MACD crossover');
+    } else if (indicators.macd < indicators.macd_signal) {
+      reasons.push('bearish MACD crossover');
+    }
+    
+    // Market context
+    if (marketContext?.marketRegime) {
+      const regime = marketContext.marketRegime.replace(/_/g, ' ').toLowerCase();
+      reasons.push(`${regime} market regime`);
+    }
+    
+    // Add probability and expected return
+    reasons.push(`${(prediction.probability * 100).toFixed(1)}% probability`);
+    reasons.push(`${prediction.expectedReturn.toFixed(2)}% expected return`);
+    
+    return reasons.join(', ') || `AI prediction`;
+  }, [marketContext]);
+
   const createTradingSignal = useCallback((
     price: number,
     prediction: PredictionOutput,
@@ -430,57 +481,6 @@ export const useAdvancedTradingSystem = (
       reasoning: generateSignalReasoning(prediction, indicators)
     };
   }, [symbol, config, marketContext, portfolio.availableBalance, generateSignalReasoning]);
-
-  const generateSignalReasoning = useCallback((
-    prediction: PredictionOutput,
-    indicators: AdvancedIndicators
-  ): string => {
-    const reasons: string[] = [];
-    
-    // Technical analysis reasons
-    if (prediction.features.technical > 0.6) {
-      reasons.push('strong technical signals');
-    } else if (prediction.features.technical < -0.6) {
-      reasons.push('bearish technical signals');
-    }
-    
-    if (prediction.features.momentum > 0.5) {
-      reasons.push('positive momentum');
-    } else if (prediction.features.momentum < -0.5) {
-      reasons.push('negative momentum');
-    }
-    
-    if (prediction.features.volatility < 0.4) {
-      reasons.push('low volatility environment');
-    } else if (prediction.features.volatility > 0.7) {
-      reasons.push('high volatility environment');
-    }
-    
-    // Specific indicator reasons
-    if (indicators.rsi_14 < 35) {
-      reasons.push('oversold RSI');
-    } else if (indicators.rsi_14 > 65) {
-      reasons.push('overbought RSI');
-    }
-    
-    if (indicators.macd > indicators.macd_signal) {
-      reasons.push('bullish MACD crossover');
-    } else if (indicators.macd < indicators.macd_signal) {
-      reasons.push('bearish MACD crossover');
-    }
-    
-    // Market context
-    if (marketContext?.marketRegime) {
-      const regime = marketContext.marketRegime.replace(/_/g, ' ').toLowerCase();
-      reasons.push(`${regime} market regime`);
-    }
-    
-    // Add probability and expected return
-    reasons.push(`${(prediction.probability * 100).toFixed(1)}% probability`);
-    reasons.push(`${prediction.expectedReturn.toFixed(2)}% expected return`);
-    
-    return reasons.join(', ') || `AI prediction`;
-  }, [marketContext]);
 
   const checkExitConditions = useCallback((currentPrice: number) => {
     const now = Date.now();
