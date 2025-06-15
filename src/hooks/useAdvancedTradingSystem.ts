@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -6,6 +7,7 @@ import { TradingSignal, Position, Portfolio, TradingConfig as BaseTradingConfig 
 const initialPortfolio: Portfolio = {
   totalBalance: 10000,
   availableBalance: 10000,
+  lockedProfits: 0,
   positions: [],
   totalPnL: 0,
   dayPnL: 0,
@@ -29,6 +31,8 @@ interface AdvancedTradingConfig extends BaseTradingConfig {
   learningEnabled: boolean;
   maxPositionsPerSymbol: number;
   useAdaptiveThresholds: boolean;
+  enableProfitLock: boolean;
+  profitLockPercentage: number;
 }
 
 export const useAdvancedTradingSystem = (
@@ -51,7 +55,9 @@ export const useAdvancedTradingSystem = (
     stopLossPercentage: 1.5, // Tighter stop loss
     takeProfitPercentage: 3.0, // Lower take profit for quicker exits
     maxOpenPositions: 100,
-    riskPerTrade: 100
+    riskPerTrade: 100,
+    enableProfitLock: true,
+    profitLockPercentage: 0.5, // Lock 50% of profits
   });
 
   const [indicators, setIndicators] = useState<AdvancedIndicators | null>(null);
@@ -126,6 +132,16 @@ export const useAdvancedTradingSystem = (
         : (position.entryPrice - closePrice) * position.size;
 
       const positionValueAtClose = position.size * closePrice;
+      
+      let newLockedProfits = prev.lockedProfits;
+      let newAvailableBalance = prev.availableBalance + positionValueAtClose;
+
+      if (config.enableProfitLock && realizedPnL > 0) {
+        const lockedAmount = realizedPnL * config.profitLockPercentage;
+        newLockedProfits += lockedAmount;
+        newAvailableBalance -= lockedAmount;
+        console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD (${config.profitLockPercentage * 100}%)`);
+      }
 
       return {
         ...prev,
@@ -134,12 +150,13 @@ export const useAdvancedTradingSystem = (
             ? { ...p, status: 'CLOSED' as const, realizedPnL, currentPrice: closePrice }
             : p
         ),
-        availableBalance: prev.availableBalance + positionValueAtClose,
+        availableBalance: newAvailableBalance,
+        lockedProfits: newLockedProfits,
         totalPnL: prev.totalPnL + realizedPnL,
         dayPnL: prev.dayPnL + realizedPnL,
       };
     });
-  }, []);
+  }, [config.enableProfitLock, config.profitLockPercentage]);
 
   const updatePositionPrices = useCallback((currentPrice: number) => {
     setPortfolio(prev => {

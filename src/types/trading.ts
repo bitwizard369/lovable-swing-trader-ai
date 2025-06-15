@@ -15,6 +15,7 @@ export interface Position {
 export interface Portfolio {
   totalBalance: number;
   availableBalance: number;
+  lockedProfits: number;
   positions: Position[];
   totalPnL: number;
   dayPnL: number;

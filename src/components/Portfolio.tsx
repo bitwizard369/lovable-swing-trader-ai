@@ -1,7 +1,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, DollarSign, PieChart, Brain, Target } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, PieChart, Brain, Target, Lock } from "lucide-react";
 import { Portfolio as PortfolioType, Position } from "@/types/trading";
 
 interface PortfolioProps {
@@ -52,7 +52,7 @@ export const Portfolio = ({ portfolio, activePositions = [] }: PortfolioProps) =
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Total Equity</p>
               <p className="text-2xl font-bold">{formatCurrency(portfolio.equity)}</p>
@@ -63,6 +63,13 @@ export const Portfolio = ({ portfolio, activePositions = [] }: PortfolioProps) =
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Available Balance</p>
               <p className="text-xl font-semibold">{formatCurrency(portfolio.availableBalance)}</p>
+            </div>
+            <div className="space-y-1">
+               <div className="flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Locked Profits</p>
+              </div>
+              <p className="text-xl font-semibold text-blue-500">{formatCurrency(portfolio.lockedProfits)}</p>
             </div>
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Total P&L</p>
