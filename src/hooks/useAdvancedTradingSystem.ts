@@ -189,7 +189,7 @@ export const useAdvancedTradingSystem = (
         return {
             ...prev,
             positions: updatedPositions,
-            equity: prev.baseCapital + prev.totalPnL + totalUnrealizedPnL
+            equity: prev.baseCapital + prev.totalPnL + prev.lockedProfits + totalUnrealizedPnL
         };
     });
   }, [symbol]);
