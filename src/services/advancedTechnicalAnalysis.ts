@@ -52,6 +52,10 @@ export class AdvancedTechnicalAnalysis {
     }
   }
   
+  public getPriceHistory(): number[] {
+    return [...this.priceHistory];
+  }
+  
   getPriceHistoryLength(): number {
     return this.priceHistory.length;
   }

@@ -12,6 +12,15 @@ const initialPortfolio: Portfolio = {
   equity: 10000
 };
 
+interface BasicTechnicalIndicators {
+  rsi: number;
+  ema_fast: number;
+  ema_slow: number;
+  macd: number;
+  signal: number;
+  volume_ratio: number;
+}
+
 interface AdvancedTradingConfig extends BaseTradingConfig {
   minProbability: number;
   minConfidence: number;
@@ -184,8 +193,8 @@ export const useAdvancedTradingSystem = (
       // Calculate basic indicators for classic view compatibility
       const priceHistory = technicalAnalysis.current.getPriceHistory();
       if (priceHistory.length >= 20 && newIndicators) {
-        const sma_fast = priceHistory.slice(-5).reduce((a, b) => a + b, 0) / 5;
-        const sma_slow = priceHistory.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        const sma_fast = priceHistory.slice(-priceHistory.length, -priceHistory.length + 5).reduce((a, b) => a + b, 0) / 5;
+        const sma_slow = priceHistory.slice(-priceHistory.length, -priceHistory.length + 20).reduce((a, b) => a + b, 0) / 20;
         setBasicIndicators({
           rsi: newIndicators.rsi_14,
           ema_fast: sma_fast, // Note: This is an SMA, matching old hook's logic.
