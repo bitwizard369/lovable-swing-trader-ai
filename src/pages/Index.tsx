@@ -1,5 +1,4 @@
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
-import { useTradingSignals } from "@/hooks/useTradingSignals";
 import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
 import { OrderBook } from "@/components/OrderBook";
@@ -21,12 +20,6 @@ const Index = () => {
   } = useBinanceWebSocket('btcusdt');
 
   const {
-    signals,
-    indicators: basicIndicators,
-    latestSignal
-  } = useTradingSignals('btcusdt', orderBook.bids, orderBook.asks);
-
-  const {
     portfolio,
     indicators: advancedIndicators,
     marketContext,
@@ -34,7 +27,11 @@ const Index = () => {
     activePositions,
     config: tradingConfig,
     updateConfig,
-    getModelPerformance
+    getModelPerformance,
+    // Data for classic view now comes from the advanced hook
+    signals,
+    latestSignal,
+    basicIndicators,
   } = useAdvancedTradingSystem(
     'btcusdt',
     orderBook.bids,

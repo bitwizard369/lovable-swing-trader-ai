@@ -54,6 +54,10 @@ export const useAdvancedTradingSystem = (
     entryTime: number;
   }>>(new Map());
 
+  // New state variables for backward compatibility
+  const [signals, setSignals] = useState<TradingSignal[]>([]);
+  const [basicIndicators, setBasicIndicators] = useState<BasicTechnicalIndicators | null>(null);
+
   const technicalAnalysis = useRef(new AdvancedTechnicalAnalysis());
   const aiModel = useRef(new AIPredictionModel());
   const lastSignalTime = useRef(0);
@@ -176,6 +180,21 @@ export const useAdvancedTradingSystem = (
       
       setIndicators(newIndicators);
       setMarketContext(newMarketContext);
+
+      // Calculate basic indicators for classic view compatibility
+      const priceHistory = technicalAnalysis.current.getPriceHistory();
+      if (priceHistory.length >= 20 && newIndicators) {
+        const sma_fast = priceHistory.slice(-5).reduce((a, b) => a + b, 0) / 5;
+        const sma_slow = priceHistory.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        setBasicIndicators({
+          rsi: newIndicators.rsi_14,
+          ema_fast: sma_fast, // Note: This is an SMA, matching old hook's logic.
+          ema_slow: sma_slow, // Note: This is an SMA, matching old hook's logic.
+          macd: newIndicators.macd,
+          signal: newIndicators.macd_signal,
+          volume_ratio: newIndicators.volume_ratio,
+        });
+      }
       
       if (newIndicators && newMarketContext) {
         console.log(`[Trading Bot] Generating enhanced signal for price ${midPrice.toFixed(2)}`);
@@ -325,6 +344,7 @@ export const useAdvancedTradingSystem = (
       const signal = createTradingSignal(currentPrice, newPrediction, indicators);
       if (signal) {
         console.log(`[Trading Bot] 📤 Executing ${signal.action} signal at ${signal.price.toFixed(2)} (Confidence: ${signal.confidence.toFixed(3)})`);
+        setSignals(prev => [...prev.slice(-9), signal]); // Keep last 10 signals
         executeAdvancedSignal(signal, newPrediction);
         lastSignalTime.current = now;
       } else {
@@ -593,6 +613,10 @@ export const useAdvancedTradingSystem = (
     updateConfig,
     getModelPerformance,
     technicalAnalysis: technicalAnalysis.current,
-    aiModel: aiModel.current
+    aiModel: aiModel.current,
+    // Add these for backward compatibility
+    signals,
+    latestSignal: signals.length > 0 ? signals[signals.length - 1] : null,
+    basicIndicators,
   };
 };
