@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -62,11 +61,21 @@ export const useAdvancedTradingSystem = (
   const canOpenPosition = useCallback((positionValue: number): boolean => {
     const openPositions = portfolio.positions.filter(p => p.status === 'OPEN').length;
     
+    const hasEnoughBalance = portfolio.availableBalance >= positionValue;
+    const isUnderMaxPositions = openPositions < config.maxOpenPositions;
+    const isUnderMaxSize = positionValue <= config.maxPositionSize;
+    const isUnderMaxLoss = Math.abs(portfolio.dayPnL) < config.maxDailyLoss;
+
+    if (!hasEnoughBalance) console.error(`[Trading Bot] ❌ Check failed: Insufficient balance. Available: ${portfolio.availableBalance.toFixed(2)}, Needed: ${positionValue.toFixed(2)}`);
+    if (!isUnderMaxPositions) console.error(`[Trading Bot] ❌ Check failed: Max open positions reached. Open: ${openPositions}, Max: ${config.maxOpenPositions}`);
+    if (!isUnderMaxSize) console.error(`[Trading Bot] ❌ Check failed: Position size exceeds max. Size: ${positionValue.toFixed(2)}, Max: ${config.maxPositionSize}`);
+    if (!isUnderMaxLoss) console.error(`[Trading Bot] ❌ Check failed: Max daily loss exceeded. PnL: ${portfolio.dayPnL.toFixed(2)}, Max Loss: ${config.maxDailyLoss}`);
+
     return (
-      portfolio.availableBalance >= positionValue &&
-      openPositions < config.maxOpenPositions &&
-      positionValue <= config.maxPositionSize &&
-      Math.abs(portfolio.dayPnL) < config.maxDailyLoss
+      hasEnoughBalance &&
+      isUnderMaxPositions &&
+      isUnderMaxSize &&
+      isUnderMaxLoss
     );
   }, [portfolio, config]);
 
@@ -388,7 +397,9 @@ export const useAdvancedTradingSystem = (
       return null;
     }
 
-    const baseQuantity = 0.01;
+    // Define base position size in USD, e.g., using leverage on risk capital
+    const basePositionSizeUSD = config.riskPerTrade * 5; // e.g. 100 * 5 = 500 USD
+    const baseQuantity = basePositionSizeUSD / price;
     
     // Enhanced adaptive position sizing
     let quantity = baseQuantity;
@@ -396,7 +407,17 @@ export const useAdvancedTradingSystem = (
       const kellyFraction = (prediction.probability * 2 - 1) * prediction.confidence;
       const confidenceMultiplier = Math.min(prediction.confidence * 1.5, 1.2);
       quantity = baseQuantity * (1 + kellyFraction * 0.8) * confidenceMultiplier;
-      quantity = Math.min(quantity, baseQuantity * 2); // Cap at 2x base size
+    }
+
+    // Ensure position size does not exceed max configured size
+    const maxQuantityFromConfig = config.maxPositionSize / price;
+    quantity = Math.min(quantity, maxQuantityFromConfig);
+
+    // Ensure position value does not exceed available balance, with a small buffer
+    const positionValue = quantity * price;
+    if (positionValue > portfolio.availableBalance) {
+      quantity = (portfolio.availableBalance / price) * 0.98; // Use 98% of what's available
+      console.warn(`[Trading Bot] ⚠️ Position size adjusted to fit available balance. New quantity: ${quantity}`);
     }
 
     return {
@@ -408,7 +429,7 @@ export const useAdvancedTradingSystem = (
       timestamp: Date.now(),
       reasoning: generateSignalReasoning(prediction, indicators)
     };
-  }, [symbol, config, marketContext]);
+  }, [symbol, config, marketContext, portfolio.availableBalance, generateSignalReasoning]);
 
   const generateSignalReasoning = useCallback((
     prediction: PredictionOutput,
