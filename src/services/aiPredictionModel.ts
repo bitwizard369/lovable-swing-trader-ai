@@ -66,11 +66,12 @@ export class AIPredictionModel {
     profitFactor: 1.0
   };
   
+  // Lowered adaptive thresholds for more active trading
   private adaptiveThresholds = {
-    minProbability: 0.52,
-    minConfidence: 0.45,
-    maxRiskScore: 0.70,
-    kellyThreshold: 0.1
+    minProbability: 0.50,  // Reduced from 0.52
+    minConfidence: 0.40,   // Reduced from 0.45
+    maxRiskScore: 0.75,    // Increased from 0.70
+    kellyThreshold: 0.05   // Reduced from 0.1
   };
   
   predict(input: PredictionInput): PredictionOutput {
@@ -363,6 +364,31 @@ export class AIPredictionModel {
     }
   }
   
+  // Relaxed threshold adaptation for more active trading
+  private adaptThresholdsBasedOnPerformance() {
+    if (this.trainingData.length < 10) return; // Reduced from 15
+    
+    const recentTrades = this.trainingData.slice(-20); // Reduced from 25
+    const winRate = recentTrades.filter(t => t.success).length / recentTrades.length;
+    const profitFactor = this.performanceMetrics.profitFactor;
+    
+    // More aggressive threshold adaptation for faster trading
+    if (winRate > 0.60 && profitFactor > 1.2) { // Lowered from 0.65 and 1.3
+      this.adaptiveThresholds.minProbability = Math.min(0.55, this.adaptiveThresholds.minProbability + 0.01);
+      this.adaptiveThresholds.minConfidence = Math.min(0.50, this.adaptiveThresholds.minConfidence + 0.01);
+    } else if (winRate < 0.40 || profitFactor < 0.9) { // Increased from 0.35 and 0.8
+      this.adaptiveThresholds.minProbability = Math.max(0.47, this.adaptiveThresholds.minProbability - 0.015);
+      this.adaptiveThresholds.minConfidence = Math.max(0.30, this.adaptiveThresholds.minConfidence - 0.015);
+    }
+    
+    const avgRisk = recentTrades.reduce((sum, t) => sum + t.prediction.riskScore, 0) / recentTrades.length;
+    if (winRate > 0.55 && avgRisk < 0.5) { // Lowered from 0.6 and 0.4
+      this.adaptiveThresholds.maxRiskScore = Math.min(0.80, this.adaptiveThresholds.maxRiskScore + 0.025);
+    } else if (winRate < 0.45) { // Increased from 0.4
+      this.adaptiveThresholds.maxRiskScore = Math.max(0.60, this.adaptiveThresholds.maxRiskScore - 0.025);
+    }
+  }
+  
   private calculateRawScore(features: any): number {
     let score = 0;
     
@@ -490,30 +516,6 @@ export class AIPredictionModel {
     }
     
     return Math.max(0.1, Math.min(0.75, risk));
-  }
-  
-  private adaptThresholdsBasedOnPerformance() {
-    if (this.trainingData.length < 15) return;
-    
-    const recentTrades = this.trainingData.slice(-25);
-    const winRate = recentTrades.filter(t => t.success).length / recentTrades.length;
-    const profitFactor = this.performanceMetrics.profitFactor;
-    
-    // More aggressive threshold adaptation
-    if (winRate > 0.65 && profitFactor > 1.3) {
-      this.adaptiveThresholds.minProbability = Math.min(0.58, this.adaptiveThresholds.minProbability + 0.01);
-      this.adaptiveThresholds.minConfidence = Math.min(0.55, this.adaptiveThresholds.minConfidence + 0.01);
-    } else if (winRate < 0.35 || profitFactor < 0.8) {
-      this.adaptiveThresholds.minProbability = Math.max(0.50, this.adaptiveThresholds.minProbability - 0.015);
-      this.adaptiveThresholds.minConfidence = Math.max(0.35, this.adaptiveThresholds.minConfidence - 0.015);
-    }
-    
-    const avgRisk = recentTrades.reduce((sum, t) => sum + t.prediction.riskScore, 0) / recentTrades.length;
-    if (winRate > 0.6 && avgRisk < 0.4) {
-      this.adaptiveThresholds.maxRiskScore = Math.min(0.75, this.adaptiveThresholds.maxRiskScore + 0.025);
-    } else if (winRate < 0.4) {
-      this.adaptiveThresholds.maxRiskScore = Math.max(0.55, this.adaptiveThresholds.maxRiskScore - 0.025);
-    }
   }
   
   private retrainModelWithRegimeAwareness() {

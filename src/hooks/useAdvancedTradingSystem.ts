@@ -39,6 +39,9 @@ interface AdvancedTradingConfig extends BaseTradingConfig {
   trailingStopATRMultiplier: number;
   enablePartialProfits: boolean;
   partialProfitLevels: number[];
+  debugMode: boolean;
+  minLiquidityScore: number;
+  minSpreadQuality: number;
 }
 
 interface PositionTracking {
@@ -59,16 +62,16 @@ export const useAdvancedTradingSystem = (
   const [portfolio, setPortfolio] = useState<Portfolio>(initialPortfolio);
 
   const [config, setConfig] = useState<AdvancedTradingConfig>({
-    minProbability: 0.52,
-    minConfidence: 0.45,
-    maxRiskScore: 0.70,
+    minProbability: 0.50, // Reduced from 0.52
+    minConfidence: 0.40,  // Reduced from 0.45
+    maxRiskScore: 0.75,   // Increased from 0.70
     adaptiveSizing: true,
     learningEnabled: true,
     useAdaptiveThresholds: true,
     maxPositionsPerSymbol: 100,
-    maxPositionSize: 1500, // Increased for Kelly sizing
+    maxPositionSize: 1500,
     maxDailyLoss: 600,
-    stopLossPercentage: 1.2, // Tighter stop loss
+    stopLossPercentage: 1.2,
     takeProfitPercentage: 2.5,
     maxOpenPositions: 100,
     riskPerTrade: 100,
@@ -76,11 +79,14 @@ export const useAdvancedTradingSystem = (
     profitLockPercentage: 1.0,
     minProfitLockThreshold: 0,
     useKellyCriterion: true,
-    maxKellyFraction: 0.15, // Max 15% of capital per trade
+    maxKellyFraction: 0.15,
     enableTrailingStop: true,
     trailingStopATRMultiplier: 2.0,
     enablePartialProfits: true,
-    partialProfitLevels: [0.8, 1.5, 2.2] // Take partial profits at these % levels
+    partialProfitLevels: [0.8, 1.5, 2.2],
+    debugMode: true,
+    minLiquidityScore: 0.05, // Reduced from 0.4
+    minSpreadQuality: 0.1    // Reduced from 0.3
   });
 
   const [indicators, setIndicators] = useState<AdvancedIndicators | null>(null);
@@ -132,6 +138,8 @@ export const useAdvancedTradingSystem = (
         availableBalance: prev.availableBalance - positionValue
     }));
 
+    console.log(`[Trading Bot] ✅ Position opened: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
+
     return newPosition;
   }, [canOpenPosition]);
 
@@ -158,6 +166,8 @@ export const useAdvancedTradingSystem = (
           console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD profit`);
         }
       }
+
+      console.log(`[Trading Bot] 🚪 Position closed: ${position.symbol} P&L: ${realizedPnL.toFixed(2)} USD`);
 
       return {
         ...prev,
@@ -488,22 +498,39 @@ export const useAdvancedTradingSystem = (
     marketContext: MarketContext,
     adaptiveThresholds: any
   ): boolean => {
-    const basicConditions = (
-      prediction.probability >= dynamicConfig.minProbability &&
-      prediction.confidence >= dynamicConfig.minConfidence &&
-      prediction.riskScore <= dynamicConfig.maxRiskScore &&
-      activePositions.size < dynamicConfig.maxPositionsPerSymbol
-    );
+    // Check each condition individually with detailed logging
+    const probabilityCheck = prediction.probability >= dynamicConfig.minProbability;
+    const confidenceCheck = prediction.confidence >= dynamicConfig.minConfidence;
+    const riskCheck = prediction.riskScore <= dynamicConfig.maxRiskScore;
+    const positionCheck = activePositions.size < dynamicConfig.maxPositionsPerSymbol;
 
-    // Enhanced conditions for better trade quality
+    if (config.debugMode) {
+      console.log(`[Signal Debug] 🔍 Checking signal conditions:`);
+      console.log(`  - Probability: ${prediction.probability.toFixed(3)} >= ${dynamicConfig.minProbability.toFixed(3)} ✓${probabilityCheck ? '✅' : '❌'}`);
+      console.log(`  - Confidence: ${prediction.confidence.toFixed(3)} >= ${dynamicConfig.minConfidence.toFixed(3)} ✓${confidenceCheck ? '✅' : '❌'}`);
+      console.log(`  - Risk Score: ${prediction.riskScore.toFixed(3)} <= ${dynamicConfig.maxRiskScore.toFixed(3)} ✓${riskCheck ? '✅' : '❌'}`);
+      console.log(`  - Position Count: ${activePositions.size} < ${dynamicConfig.maxPositionsPerSymbol} ✓${positionCheck ? '✅' : '❌'}`);
+    }
+
+    const basicConditions = probabilityCheck && confidenceCheck && riskCheck && positionCheck;
+
+    // Enhanced conditions for better trade quality (relaxed thresholds)
     const kellyCondition = !config.useKellyCriterion || 
       !adaptiveThresholds || 
       prediction.kellyFraction >= adaptiveThresholds.kellyThreshold;
-    const liquidityCondition = marketContext.liquidityScore >= 0.4;
-    const spreadCondition = marketContext.spreadQuality >= 0.3;
+    const liquidityCondition = marketContext.liquidityScore >= config.minLiquidityScore; // Now 0.05 instead of 0.4
+    const spreadCondition = marketContext.spreadQuality >= config.minSpreadQuality; // Now 0.1 instead of 0.3
+
+    if (config.debugMode) {
+      console.log(`[Signal Debug] 🔍 Enhanced conditions:`);
+      console.log(`  - Kelly Condition: ${kellyCondition ? '✅' : '❌'} (Kelly: ${prediction.kellyFraction.toFixed(3)})`);
+      console.log(`  - Liquidity: ${marketContext.liquidityScore.toFixed(3)} >= ${config.minLiquidityScore.toFixed(3)} ✓${liquidityCondition ? '✅' : '❌'}`);
+      console.log(`  - Spread Quality: ${marketContext.spreadQuality.toFixed(3)} >= ${config.minSpreadQuality.toFixed(3)} ✓${spreadCondition ? '✅' : '❌'}`);
+      console.log(`[Signal Debug] 🎯 Final Result: ${basicConditions && kellyCondition && liquidityCondition && spreadCondition ? 'SIGNAL GENERATED' : 'NO SIGNAL'}`);
+    }
 
     return basicConditions && kellyCondition && liquidityCondition && spreadCondition;
-  }, [activePositions, config.useKellyCriterion]);
+  }, [activePositions, config.useKellyCriterion, config.debugMode, config.minLiquidityScore, config.minSpreadQuality]);
 
   const createEnhancedTradingSignal = useCallback((
     price: number,
