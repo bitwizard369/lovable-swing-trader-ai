@@ -39,7 +39,7 @@ export const Portfolio = ({ portfolio, activePositions = [] }: PortfolioProps) =
 
   const openPositions = portfolio.positions.filter(p => p.status === 'OPEN');
   const totalUnrealizedPnL = openPositions.reduce((sum, p) => sum + p.unrealizedPnL, 0);
-  const equityChange = ((portfolio.equity - portfolio.totalBalance) / portfolio.totalBalance) * 100;
+  const equityChange = portfolio.baseCapital > 0 ? ((portfolio.equity - portfolio.baseCapital) / portfolio.baseCapital) * 100 : 0;
 
   return (
     <div className="space-y-4">
