@@ -1,4 +1,3 @@
-
 export interface Position {
   id: string;
   symbol: string;
@@ -13,7 +12,7 @@ export interface Position {
 }
 
 export interface Portfolio {
-  totalBalance: number;
+  baseCapital: number;
   availableBalance: number;
   lockedProfits: number;
   positions: Position[];
