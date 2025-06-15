@@ -57,8 +57,8 @@ export const useAdvancedTradingSystem = (
     maxOpenPositions: 100,
     riskPerTrade: 100,
     enableProfitLock: true,
-    profitLockPercentage: 0.5, // Lock 50% of profits
-    minProfitLockThreshold: 10, // Only lock profits on trades that make > $10
+    profitLockPercentage: 1.0, // Lock 100% of profits for testing
+    minProfitLockThreshold: 0, // No minimum for testing
   });
 
   const [indicators, setIndicators] = useState<AdvancedIndicators | null>(null);
@@ -137,16 +137,22 @@ export const useAdvancedTradingSystem = (
       let newLockedProfits = prev.lockedProfits;
       let newAvailableBalance = prev.availableBalance + positionValueAtClose;
 
-      if (config.enableProfitLock && realizedPnL > 0) {
-        const isAboveThreshold = config.minProfitLockThreshold === undefined || realizedPnL >= config.minProfitLockThreshold;
-        if (isAboveThreshold) {
-          const lockedAmount = realizedPnL * config.profitLockPercentage;
-          newLockedProfits += lockedAmount;
-          newAvailableBalance -= lockedAmount;
-          console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD (${config.profitLockPercentage * 100}%) of ${realizedPnL.toFixed(2)} profit.`);
+      if (config.enableProfitLock) {
+        if (realizedPnL > 0) {
+          const isAboveThreshold = config.minProfitLockThreshold === undefined || realizedPnL >= config.minProfitLockThreshold;
+          if (isAboveThreshold) {
+            const lockedAmount = realizedPnL * config.profitLockPercentage;
+            newLockedProfits += lockedAmount;
+            newAvailableBalance -= lockedAmount;
+            console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD (${config.profitLockPercentage * 100}%) of ${realizedPnL.toFixed(2)} profit.`);
+          } else {
+            console.log(`[Profit Lock] ℹ️ Profit ${realizedPnL.toFixed(2)} USD is below threshold of ${config.minProfitLockThreshold}. Not locking.`);
+          }
         } else {
-          console.log(`[Profit Lock] ℹ️ Profit ${realizedPnL.toFixed(2)} USD is below threshold of ${config.minProfitLockThreshold}. Not locking.`);
+          console.log(`[Profit Lock] ℹ️ No profit to lock. Realized PnL: ${realizedPnL.toFixed(2)} USD.`);
         }
+      } else {
+        console.log(`[Profit Lock] ℹ️ Profit locking is disabled.`);
       }
 
       return {
@@ -391,7 +397,7 @@ export const useAdvancedTradingSystem = (
     }
   }, [config, getDynamicConfig, activePositions, marketContext, executeAdvancedSignal]);
 
-  const calculateOrderBookImbalance = useCallback((): number => {
+  const calculateOrderBookImbalance = useCallback(() => {
     if (bids.length === 0 || asks.length === 0) return 0;
     
     const topBidsVolume = bids.slice(0, 10).reduce((sum, bid) => sum + bid.quantity, 0); // Increased depth
@@ -492,7 +498,7 @@ export const useAdvancedTradingSystem = (
         console.log(`[Trading Bot] 🔄 Override HOLD to BUY (regime bonus: ${regimeBonus.toFixed(3)})`);
       } else if (prediction.probability + regimeBonus < 0.495) {
         action = 'SELL';
-        console.log(`[Trading Bot] 🔄 Override HOLD to SELL (regime bonus: ${regimeBonus.toFixed(3)})`);
+        console.log(`[Trading Bot] 🔄 Override HOLD to SELL (regime bonus: ${regameBonus.toFixed(3)})`);
       }
     }
 
