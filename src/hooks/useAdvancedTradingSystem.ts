@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -444,7 +443,7 @@ export const useAdvancedTradingSystem = (
 
     console.log(`[Trading Bot] 🎯 Enhanced prediction - Kelly: ${newPrediction.kellyFraction.toFixed(3)}, MAE: ${newPrediction.maxAdverseExcursion.toFixed(3)}%`);
 
-    if (shouldGenerateEnhancedSignal(newPrediction, dynamicConfig, marketContext)) {
+    if (shouldGenerateEnhancedSignal(newPrediction, dynamicConfig, marketContext, adaptiveThresholds)) {
       console.log(`[Trading Bot] 🎯 Enhanced signal conditions met!`);
       const signal = createEnhancedTradingSignal(currentPrice, newPrediction, indicators, marketContext);
       if (signal) {
@@ -486,7 +485,8 @@ export const useAdvancedTradingSystem = (
   const shouldGenerateEnhancedSignal = useCallback((
     prediction: PredictionOutput, 
     dynamicConfig: AdvancedTradingConfig,
-    marketContext: MarketContext
+    marketContext: MarketContext,
+    adaptiveThresholds: any
   ): boolean => {
     const basicConditions = (
       prediction.probability >= dynamicConfig.minProbability &&
@@ -496,12 +496,14 @@ export const useAdvancedTradingSystem = (
     );
 
     // Enhanced conditions for better trade quality
-    const kellyCondition = !config.useKellyCriterion || prediction.kellyFraction >= adaptiveThresholds.kellyThreshold;
+    const kellyCondition = !config.useKellyCriterion || 
+      !adaptiveThresholds || 
+      prediction.kellyFraction >= adaptiveThresholds.kellyThreshold;
     const liquidityCondition = marketContext.liquidityScore >= 0.4;
     const spreadCondition = marketContext.spreadQuality >= 0.3;
 
     return basicConditions && kellyCondition && liquidityCondition && spreadCondition;
-  }, [activePositions, config.useKellyCriterion, adaptiveThresholds]);
+  }, [activePositions, config.useKellyCriterion]);
 
   const createEnhancedTradingSignal = useCallback((
     price: number,
