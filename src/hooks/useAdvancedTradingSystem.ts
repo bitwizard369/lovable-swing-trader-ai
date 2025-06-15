@@ -498,7 +498,7 @@ export const useAdvancedTradingSystem = (
         console.log(`[Trading Bot] 🔄 Override HOLD to BUY (regime bonus: ${regimeBonus.toFixed(3)})`);
       } else if (prediction.probability + regimeBonus < 0.495) {
         action = 'SELL';
-        console.log(`[Trading Bot] 🔄 Override HOLD to SELL (regime bonus: ${regameBonus.toFixed(3)})`);
+        console.log(`[Trading Bot] 🔄 Override HOLD to SELL (regime bonus: ${regimeBonus.toFixed(3)})`);
       }
     }
 
