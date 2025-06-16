@@ -539,7 +539,7 @@ export const useAdvancedTradingSystem = (
 
     // Enhanced opportunity detection
     const opportunityCondition = !config.enableOpportunityDetection || 
-      this.isMarketOpportunityDetected(prediction, marketContext);
+      isMarketOpportunityDetected(prediction, marketContext);
 
     if (config.debugMode) {
       console.log(`[Signal Debug] 🔍 Enhanced recalibrated conditions:`);
