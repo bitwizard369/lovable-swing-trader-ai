@@ -553,23 +553,41 @@ export const useAdvancedTradingSystem = (
     return basicConditions && kellyCondition && liquidityCondition && spreadCondition && opportunityCondition;
   }, [activePositions, config]);
 
-  // Enhanced market opportunity detection
+  // Enhanced market opportunity detection with more permissive thresholds
   const isMarketOpportunityDetected = useCallback((
     prediction: PredictionOutput,
     marketContext: MarketContext
   ): boolean => {
-    // Check for strong feature confluence
+    // Check for strong feature confluence with lowered threshold
     if (!prediction.featureContributions) return true; // Fallback if not available
     
     const contributions = prediction.featureContributions;
-    const strongFeatures = Object.values(contributions).filter(value => Math.abs(value) > 0.15).length;
+    const strongFeatures = Object.values(contributions).filter(value => Math.abs(value) > 0.08).length; // Lowered from 0.15
+    
+    // Calculate sum of absolute feature contributions
+    const totalFeatureStrength = Object.values(contributions).reduce((sum, value) => sum + Math.abs(value), 0);
     
     // Market opportunity exists if we have strong signals and good market quality
     const hasStrongSignals = strongFeatures >= 2;
-    const hasGoodMarketQuality = marketContext.liquidityScore > 0.2 && marketContext.spreadQuality > 0.3;
+    const hasGoodFeatureSum = totalFeatureStrength > 0.25; // New criterion
+    const hasGoodMarketQuality = marketContext.liquidityScore > 0.15 && marketContext.spreadQuality > 0.3; // Lowered liquidity from 0.2
     
-    return hasStrongSignals && hasGoodMarketQuality;
-  }, []);
+    // Fallback condition for high-confidence predictions
+    const highConfidenceFallback = prediction.confidence > 0.7 && prediction.probability > 0.58;
+    
+    const isOpportunity = (hasStrongSignals || hasGoodFeatureSum || highConfidenceFallback) && hasGoodMarketQuality;
+    
+    if (config.debugMode) {
+      console.log(`[Opportunity Debug] 🔍 Opportunity detection:`);
+      console.log(`  - Strong features (>0.08): ${strongFeatures}/2 required ✓${hasStrongSignals ? '✅' : '❌'}`);
+      console.log(`  - Total feature strength: ${totalFeatureStrength.toFixed(3)} > 0.25 ✓${hasGoodFeatureSum ? '✅' : '❌'}`);
+      console.log(`  - High confidence fallback: conf=${prediction.confidence.toFixed(3)}>0.7 & prob=${prediction.probability.toFixed(3)}>0.58 ✓${highConfidenceFallback ? '✅' : '❌'}`);
+      console.log(`  - Market quality: liquidity=${marketContext.liquidityScore.toFixed(3)}>0.15 & spread=${marketContext.spreadQuality.toFixed(3)}>0.3 ✓${hasGoodMarketQuality ? '✅' : '❌'}`);
+      console.log(`  - Final opportunity result: ${isOpportunity ? '✅ OPPORTUNITY DETECTED' : '❌ NO OPPORTUNITY'}`);
+    }
+    
+    return isOpportunity;
+  }, [config.debugMode]);
 
   const createEnhancedTradingSignal = useCallback((
     price: number,
