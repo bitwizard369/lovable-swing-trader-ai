@@ -29,6 +29,9 @@ export interface PredictionOutput {
   };
   kellyFraction: number;
   maxAdverseExcursion: number;
+  featureContributions?: {
+    [key: string]: number;
+  };
 }
 
 export interface TradeOutcome {
@@ -66,27 +69,53 @@ export class AIPredictionModel {
     profitFactor: 1.0
   };
   
-  // Lowered adaptive thresholds for more active trading
+  // Recalibrated adaptive thresholds for better trade generation
   private adaptiveThresholds = {
-    minProbability: 0.50,  // Reduced from 0.52
-    minConfidence: 0.40,   // Reduced from 0.45
-    maxRiskScore: 0.75,    // Increased from 0.70
-    kellyThreshold: 0.05   // Reduced from 0.1
+    minProbability: 0.48,  // Lowered from 0.50
+    minConfidence: 0.30,   // Lowered from 0.40
+    maxRiskScore: 0.80,    // Increased from 0.75
+    kellyThreshold: 0.02   // Significantly lowered from 0.05
+  };
+
+  // Signal generation tracking
+  private signalMetrics = {
+    lastSignalTime: 0,
+    signalDroughtCount: 0,
+    totalSignalsGenerated: 0,
+    signalsInLastHour: 0,
+    avgTimeBetweenSignals: 0,
+    consecutiveNoSignals: 0
+  };
+
+  // Market opportunity detection
+  private marketOpportunityState = {
+    isInOpportunityWindow: false,
+    opportunityStartTime: 0,
+    missedOpportunities: 0,
+    lastOpportunityCheck: 0
   };
   
   predict(input: PredictionInput): PredictionOutput {
-    const features = this.extractEnhancedFeatures(input);
-    const rawScore = this.calculateRawScore(features);
-    const probability = this.sigmoidActivation(rawScore);
+    const features = this.extractRecalibratedFeatures(input);
+    const rawScore = this.calculateEnhancedRawScore(features, input.marketContext);
+    
+    // Recalibrated sigmoid activation for better probability distribution
+    const probability = this.recalibratedSigmoidActivation(rawScore);
     
     const confidence = this.calculateEnhancedConfidence(features, input.marketContext);
     const expectedReturn = this.estimateExpectedReturn(probability, confidence, input.indicators, input.marketContext);
     const timeHorizon = this.estimateOptimalTimeHorizon(input.marketContext, input.indicators);
-    const riskScore = this.calculateEnhancedRiskScore(input);
-    const kellyFraction = this.calculateKellyFraction(probability, expectedReturn);
+    const riskScore = this.calculateRecalibratedRiskScore(input);
+    const kellyFraction = this.calculateOptimizedKellyFraction(probability, expectedReturn);
     const maxAdverseExcursion = this.estimateMAE(input.indicators, input.marketContext);
     
-    console.log(`[AI Model] Enhanced prediction - Prob: ${probability.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}, MAE: ${maxAdverseExcursion.toFixed(3)}%`);
+    // Enhanced feature contribution tracking
+    const featureContributions = this.calculateFeatureContributions(features, input.marketContext);
+    
+    console.log(`[AI Model] 🎯 Recalibrated prediction - Prob: ${probability.toFixed(3)}, Raw Score: ${rawScore.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}`);
+    console.log(`[AI Model] 📊 Feature contributions - Tech: ${featureContributions.technical.toFixed(3)}, Momentum: ${featureContributions.momentum.toFixed(3)}, Market: ${featureContributions.market_structure.toFixed(3)}`);
+    
+    this.trackSignalGeneration(probability >= this.adaptiveThresholds.minProbability);
     
     return {
       probability,
@@ -102,7 +131,8 @@ export class AIPredictionModel {
         orderbook_depth: features.orderbook_depth
       },
       kellyFraction,
-      maxAdverseExcursion
+      maxAdverseExcursion,
+      featureContributions
     };
   }
   
@@ -122,7 +152,10 @@ export class AIPredictionModel {
     }
     
     // Update Kelly Criterion threshold based on recent performance
-    this.updateKellyThreshold();
+    this.updateOptimizedKellyThreshold();
+    
+    // Track actual vs predicted performance
+    this.trackPredictionAccuracy(outcome);
   }
   
   getModelPerformance() {
@@ -131,6 +164,8 @@ export class AIPredictionModel {
       totalSamples: this.trainingData.length,
       lastUpdated: new Date().toISOString(),
       adaptiveThresholds: this.adaptiveThresholds,
+      signalMetrics: this.signalMetrics,
+      marketOpportunityState: this.marketOpportunityState,
       recentTrades: this.trainingData.slice(-10)
     };
   }
@@ -138,74 +173,113 @@ export class AIPredictionModel {
   getAdaptiveThresholds() {
     return { ...this.adaptiveThresholds };
   }
+
+  // Enhanced method to check for signal drought and adjust thresholds
+  shouldBypassThresholds(): boolean {
+    const now = Date.now();
+    const timeSinceLastSignal = now - this.signalMetrics.lastSignalTime;
+    const signalDroughtThreshold = 300000; // 5 minutes
+    
+    if (timeSinceLastSignal > signalDroughtThreshold) {
+      this.signalMetrics.signalDroughtCount++;
+      console.log(`[AI Model] ⚠️ Signal drought detected: ${(timeSinceLastSignal / 1000).toFixed(0)}s since last signal`);
+      
+      // Progressive threshold reduction during drought
+      const droughtMultiplier = Math.max(0.7, 1 - (this.signalMetrics.signalDroughtCount * 0.05));
+      return droughtMultiplier < 0.9;
+    }
+    
+    return false;
+  }
+
+  // Get dynamic thresholds with drought bypass
+  getDynamicThresholds(): typeof this.adaptiveThresholds {
+    if (this.shouldBypassThresholds()) {
+      const droughtMultiplier = Math.max(0.7, 1 - (this.signalMetrics.signalDroughtCount * 0.05));
+      console.log(`[AI Model] 🔄 Applying drought bypass with multiplier: ${droughtMultiplier.toFixed(3)}`);
+      
+      return {
+        minProbability: this.adaptiveThresholds.minProbability * droughtMultiplier,
+        minConfidence: this.adaptiveThresholds.minConfidence * droughtMultiplier,
+        maxRiskScore: Math.min(0.85, this.adaptiveThresholds.maxRiskScore / droughtMultiplier),
+        kellyThreshold: this.adaptiveThresholds.kellyThreshold * droughtMultiplier
+      };
+    }
+    
+    return this.adaptiveThresholds;
+  }
   
-  // Enhanced feature extraction with optimized sensitivity
-  private extractEnhancedFeatures(input: PredictionInput) {
+  // Recalibrated feature extraction with optimized sensitivity
+  private extractRecalibratedFeatures(input: PredictionInput) {
     const { indicators, marketContext, orderBookImbalance, recentPriceMovement, deepOrderBookData } = input;
     
-    // Technical features with adaptive scaling
-    const rsiSignal = this.normalizeRSIAdaptive(indicators.rsi_14, marketContext.volatilityRegime);
-    const macdSignal = Math.tanh(indicators.macd_histogram * this.getAdaptiveScaling(marketContext)); // Reduced from 50x
+    // Technical features with recalibrated scaling
+    const rsiSignal = this.normalizeRSIRecalibrated(indicators.rsi_14, marketContext.volatilityRegime);
+    const macdSignal = Math.tanh(indicators.macd_histogram * this.getRecalibratedScaling(marketContext));
     const bollingerPosition = this.calculateBollingerPosition(indicators);
-    const trendStrength = Math.min(indicators.trend_strength / 25, 1); // More responsive
+    const trendStrength = Math.min(indicators.trend_strength / 20, 1); // More sensitive
     
-    // Enhanced momentum with VWAP
-    const priceMomentum = this.calculatePriceMomentum(recentPriceMovement);
-    const volumeMomentum = Math.tanh((indicators.volume_ratio - 1) * 3); // Reduced sensitivity
-    const vwapSignal = this.calculateVWAPSignal(indicators);
-    const macdMomentum = indicators.macd > indicators.macd_signal ? 0.25 : -0.25;
+    // Enhanced momentum with better VWAP weighting
+    const priceMomentum = this.calculateRecalibratedPriceMomentum(recentPriceMovement);
+    const volumeMomentum = Math.tanh((indicators.volume_ratio - 1) * 2); // Reduced sensitivity
+    const vwapSignal = this.calculateEnhancedVWAPSignal(indicators);
+    const macdMomentum = indicators.macd > indicators.macd_signal ? 0.3 : -0.3; // Increased from 0.25
     
-    // Volatility features with regime awareness
-    const volatilityScore = this.getVolatilityScore(marketContext.volatilityRegime);
+    // Volatility features with better regime handling
+    const volatilityScore = this.getRecalibratedVolatilityScore(marketContext.volatilityRegime, marketContext.marketRegime);
     const atrNormalized = indicators.bollinger_middle > 0 ? 
-      Math.min(indicators.atr / indicators.bollinger_middle, 0.04) * 25 : 0;
+      Math.min(indicators.atr / indicators.bollinger_middle, 0.05) * 20 : 0;
     const bollingerWidth = this.calculateBollingerWidth(indicators);
     
-    // Enhanced market structure
+    // Market structure with regime bias correction
     const supportResistanceStrength = this.calculateSRStrength(indicators);
     const marketHourScore = this.getMarketHourScore(marketContext.marketHour);
-    const marketRegimeScore = this.getMarketRegimeScore(marketContext.marketRegime);
+    const marketRegimeScore = this.getRecalibratedMarketRegimeScore(marketContext.marketRegime, marketContext.volatilityRegime);
     const liquidityScore = marketContext.liquidityScore;
     
-    // Deep order book analysis
-    const orderbookDepthScore = this.calculateOrderbookDepth(deepOrderBookData, orderBookImbalance);
+    // Enhanced order book analysis
+    const orderbookDepthScore = this.calculateEnhancedOrderbookDepth(deepOrderBookData, orderBookImbalance);
     
-    return {
+    const features = {
       technical: (rsiSignal + macdSignal + bollingerPosition + trendStrength) / 4,
       momentum: (priceMomentum + volumeMomentum + vwapSignal + macdMomentum) / 4,
       volatility: (volatilityScore + atrNormalized + bollingerWidth) / 3,
       market_structure: (supportResistanceStrength + marketHourScore + marketRegimeScore + liquidityScore) / 4,
       orderbook_depth: orderbookDepthScore,
-      orderbook_imbalance: Math.tanh(orderBookImbalance * 10) // Reduced from 15
+      orderbook_imbalance: Math.tanh(orderBookImbalance * 8)
     };
+
+    console.log(`[Features] 📊 Recalibrated features - Tech: ${features.technical.toFixed(3)}, Momentum: ${features.momentum.toFixed(3)}, Market: ${features.market_structure.toFixed(3)}, OB: ${features.orderbook_depth.toFixed(3)}`);
+    
+    return features;
   }
   
-  // Adaptive scaling based on market conditions
-  private getAdaptiveScaling(marketContext: MarketContext): number {
-    let baseScaling = 10; // Reduced from 50
+  // Recalibrated scaling with better regime awareness
+  private getRecalibratedScaling(marketContext: MarketContext): number {
+    let baseScaling = 15; // Increased from 10 for better sensitivity
     
     switch (marketContext.volatilityRegime) {
       case 'HIGH':
-        return baseScaling * 0.7; // Reduce sensitivity in high volatility
+        return baseScaling * 0.8; // Less aggressive reduction
       case 'LOW':
-        return baseScaling * 1.3; // Increase sensitivity in low volatility
+        return baseScaling * 1.2; // Moderate increase
       default:
         return baseScaling;
     }
   }
   
-  // Enhanced RSI normalization with volatility awareness
-  private normalizeRSIAdaptive(rsi: number, volatilityRegime: string): number {
-    let overboughtLevel = 70;
-    let oversoldLevel = 30;
+  // Enhanced RSI normalization with better thresholds
+  private normalizeRSIRecalibrated(rsi: number, volatilityRegime: string): number {
+    let overboughtLevel = 68; // Lowered from 70
+    let oversoldLevel = 32;   // Raised from 30
     
-    // Adjust levels based on volatility
+    // More aggressive adjustments for volatility
     if (volatilityRegime === 'HIGH') {
-      overboughtLevel = 75;
-      oversoldLevel = 25;
+      overboughtLevel = 72;
+      oversoldLevel = 28;
     } else if (volatilityRegime === 'LOW') {
-      overboughtLevel = 65;
-      oversoldLevel = 35;
+      overboughtLevel = 62;
+      oversoldLevel = 38;
     }
     
     if (rsi > overboughtLevel) return (rsi - overboughtLevel) / (100 - overboughtLevel);
@@ -213,202 +287,386 @@ export class AIPredictionModel {
     return (rsi - 50) / 50;
   }
   
-  // VWAP-based signal
-  private calculateVWAPSignal(indicators: AdvancedIndicators): number {
+  // Enhanced VWAP signal with better sensitivity
+  private calculateEnhancedVWAPSignal(indicators: AdvancedIndicators): number {
     if (indicators.vwap === 0 || indicators.bollinger_middle === 0) return 0;
     
     const priceVsVWAP = (indicators.bollinger_middle - indicators.vwap) / indicators.vwap;
-    return Math.tanh(priceVsVWAP * 100); // Price relative to VWAP
+    return Math.tanh(priceVsVWAP * 150); // Increased from 100 for better sensitivity
+  }
+  
+  // Recalibrated price momentum calculation
+  private calculateRecalibratedPriceMomentum(recentPrices: number[]): number {
+    if (recentPrices.length < 2) return 0;
+    
+    const momentum = (recentPrices[recentPrices.length - 1] - recentPrices[0]) / recentPrices[0];
+    return Math.tanh(momentum * 400); // Increased from 300 for better sensitivity
   }
   
   // Enhanced order book depth analysis
-  private calculateOrderbookDepth(deepData: any, imbalance: number): number {
+  private calculateEnhancedOrderbookDepth(deepData: any, imbalance: number): number {
     if (!deepData) {
-      // Fallback to basic imbalance
-      return Math.tanh(imbalance * 8);
+      return Math.tanh(imbalance * 10); // Increased from 8
     }
     
     const { bidDepth, askDepth, weightedMidPrice } = deepData;
     
-    // Calculate depth-weighted imbalance
     const totalBidDepth = bidDepth.reduce((sum, depth) => sum + depth, 0);
     const totalAskDepth = askDepth.reduce((sum, depth) => sum + depth, 0);
     const depthImbalance = (totalBidDepth - totalAskDepth) / (totalBidDepth + totalAskDepth);
     
-    // Combine with price-weighted signal
-    const depthScore = Math.tanh(depthImbalance * 5);
-    const imbalanceScore = Math.tanh(imbalance * 8);
+    const depthScore = Math.tanh(depthImbalance * 6); // Increased from 5
+    const imbalanceScore = Math.tanh(imbalance * 10);
     
     return (depthScore + imbalanceScore) / 2;
   }
   
-  // Kelly Criterion calculation
-  private calculateKellyFraction(probability: number, expectedReturn: number): number {
+  // Optimized Kelly Criterion calculation
+  private calculateOptimizedKellyFraction(probability: number, expectedReturn: number): number {
     const winProbability = probability;
     const lossProbability = 1 - probability;
     const avgWin = Math.abs(expectedReturn);
-    const avgLoss = Math.abs(expectedReturn) * 0.5; // Assume 2:1 reward-risk ratio
+    const avgLoss = Math.abs(expectedReturn) * 0.4; // Better risk-reward ratio assumption
     
     if (avgLoss === 0) return 0;
     
     const kellyFraction = (winProbability * avgWin - lossProbability * avgLoss) / avgWin;
-    return Math.max(0, Math.min(0.25, kellyFraction)); // Cap at 25%
+    
+    // Progressive Kelly sizing based on confidence
+    const adjustedKelly = Math.max(0, Math.min(0.20, kellyFraction)); // Increased cap from 0.15
+    
+    console.log(`[Kelly] 📊 Optimized Kelly - Raw: ${kellyFraction.toFixed(3)}, Adjusted: ${adjustedKelly.toFixed(3)}, Win Prob: ${winProbability.toFixed(3)}`);
+    
+    return adjustedKelly;
   }
   
-  // Estimate Maximum Adverse Excursion
-  private estimateMAE(indicators: AdvancedIndicators, marketContext: MarketContext): number {
-    let baseMAE = 0.5; // 0.5% base expectation
-    
-    // Adjust based on volatility
-    const atrPercent = indicators.bollinger_middle > 0 ? 
-      (indicators.atr / indicators.bollinger_middle) * 100 : 0.5;
-    
-    baseMAE = Math.max(0.3, Math.min(2.0, atrPercent * 0.8));
-    
-    // Adjust for market regime
-    switch (marketContext.marketRegime) {
-      case 'SIDEWAYS_VOLATILE':
-        baseMAE *= 1.5;
-        break;
-      case 'STRONG_BULL':
-      case 'STRONG_BEAR':
-        baseMAE *= 0.8;
-        break;
-    }
-    
-    return baseMAE;
-  }
-  
-  // Enhanced confidence calculation
+  // Enhanced confidence calculation with better regime handling
   private calculateEnhancedConfidence(features: any, marketContext: MarketContext): number {
-    let confidence = 0.6;
+    let confidence = 0.55; // Lowered base from 0.6
 
-    // Market regime confidence adjustments
+    // Recalibrated market regime confidence adjustments
     switch (marketContext.marketRegime) {
         case 'STRONG_BULL':
         case 'STRONG_BEAR':
-            confidence += 0.15;
+            confidence += 0.18; // Increased from 0.15
             break;
         case 'WEAK_BULL':
         case 'WEAK_BEAR':
-            confidence += 0.05;
+            confidence += 0.08; // Increased from 0.05
             break;
         case 'SIDEWAYS_VOLATILE':
-            confidence -= 0.15;
+            confidence -= 0.10; // Reduced penalty from -0.15
             break;
         case 'SIDEWAYS_QUIET':
-            confidence -= 0.1;
+            confidence -= 0.05; // Reduced penalty from -0.1
             break;
     }
     
-    // Liquidity and spread quality adjustments
-    confidence += (marketContext.liquidityScore - 0.5) * 0.2;
-    confidence += (marketContext.spreadQuality - 0.5) * 0.15;
+    // Enhanced liquidity and spread quality adjustments
+    confidence += (marketContext.liquidityScore - 0.5) * 0.25; // Increased from 0.2
+    confidence += (marketContext.spreadQuality - 0.5) * 0.20; // Increased from 0.15
     
-    // Technical signal strength
+    // Better technical signal strength weighting
     const technicalStrength = Math.abs(features.technical);
-    if (technicalStrength > 0.7) {
-      confidence += 0.12;
-    } else if (technicalStrength > 0.5) {
-      confidence += 0.08;
+    if (technicalStrength > 0.6) {
+      confidence += 0.15; // Increased from 0.12
+    } else if (technicalStrength > 0.4) { // Lowered threshold from 0.5
+      confidence += 0.10; // Increased from 0.08
     }
     
-    // Order book depth confidence
-    if (Math.abs(features.orderbook_depth) > 0.6) {
-      confidence += 0.1;
+    // Enhanced order book depth confidence
+    if (Math.abs(features.orderbook_depth) > 0.5) { // Lowered threshold from 0.6
+      confidence += 0.12; // Increased from 0.1
     }
     
-    return Math.max(0.3, Math.min(0.9, confidence));
+    return Math.max(0.25, Math.min(0.92, confidence)); // Adjusted range
   }
-  
-  // Enhanced performance metrics calculation
-  private updateEnhancedPerformanceMetrics() {
-    if (this.trainingData.length === 0) return;
+
+  // Recalibrated market regime scoring with bias correction
+  private getRecalibratedMarketRegimeScore(regime: MarketContext['marketRegime'], volatilityRegime: string): number {
+    let baseScore = 0;
     
-    const recentTrades = this.trainingData.slice(-50);
-    const successfulTrades = recentTrades.filter(t => t.success);
-    
-    this.performanceMetrics.winRate = successfulTrades.length / recentTrades.length;
-    this.performanceMetrics.totalTrades = this.trainingData.length;
-    
-    // Calculate enhanced metrics
-    const returns = recentTrades.map(t => t.actualReturn);
-    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length);
-    this.performanceMetrics.sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
-    
-    // MAE and MFE tracking
-    this.performanceMetrics.avgMAE = recentTrades.reduce((sum, t) => sum + t.maxAdverseExcursion, 0) / recentTrades.length;
-    this.performanceMetrics.avgMFE = recentTrades.reduce((sum, t) => sum + t.maxFavorableExcursion, 0) / recentTrades.length;
-    
-    // Profit factor
-    const grossProfit = recentTrades.filter(t => t.success).reduce((sum, t) => sum + Math.abs(t.actualReturn), 0);
-    const grossLoss = recentTrades.filter(t => !t.success).reduce((sum, t) => sum + Math.abs(t.actualReturn), 0);
-    this.performanceMetrics.profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 1.0;
-    
-    console.log(`[AI Model] Enhanced metrics - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Profit factor: ${this.performanceMetrics.profitFactor.toFixed(2)}, Avg MAE: ${this.performanceMetrics.avgMAE.toFixed(3)}%`);
-  }
-  
-  // Update Kelly threshold based on performance
-  private updateKellyThreshold() {
-    if (this.trainingData.length < 20) return;
-    
-    const recentWinRate = this.getRecentWinRate();
-    const profitFactor = this.performanceMetrics.profitFactor;
-    
-    // Adjust Kelly threshold based on performance
-    if (recentWinRate > 0.65 && profitFactor > 1.3) {
-      this.adaptiveThresholds.kellyThreshold = Math.min(0.2, this.adaptiveThresholds.kellyThreshold * 1.1);
-    } else if (recentWinRate < 0.35 || profitFactor < 0.8) {
-      this.adaptiveThresholds.kellyThreshold = Math.max(0.05, this.adaptiveThresholds.kellyThreshold * 0.9);
-    }
-  }
-  
-  // Relaxed threshold adaptation for more active trading
-  private adaptThresholdsBasedOnPerformance() {
-    if (this.trainingData.length < 10) return; // Reduced from 15
-    
-    const recentTrades = this.trainingData.slice(-20); // Reduced from 25
-    const winRate = recentTrades.filter(t => t.success).length / recentTrades.length;
-    const profitFactor = this.performanceMetrics.profitFactor;
-    
-    // More aggressive threshold adaptation for faster trading
-    if (winRate > 0.60 && profitFactor > 1.2) { // Lowered from 0.65 and 1.3
-      this.adaptiveThresholds.minProbability = Math.min(0.55, this.adaptiveThresholds.minProbability + 0.01);
-      this.adaptiveThresholds.minConfidence = Math.min(0.50, this.adaptiveThresholds.minConfidence + 0.01);
-    } else if (winRate < 0.40 || profitFactor < 0.9) { // Increased from 0.35 and 0.8
-      this.adaptiveThresholds.minProbability = Math.max(0.47, this.adaptiveThresholds.minProbability - 0.015);
-      this.adaptiveThresholds.minConfidence = Math.max(0.30, this.adaptiveThresholds.minConfidence - 0.015);
+    switch (regime) {
+      case 'STRONG_BULL': 
+        baseScore = 0.8; // Reduced from 0.9
+        break;
+      case 'WEAK_BULL': 
+        baseScore = 0.4; // Reduced from 0.5
+        break;
+      case 'STRONG_BEAR': 
+        baseScore = -0.8; // Increased from -0.9
+        break;
+      case 'WEAK_BEAR': 
+        baseScore = -0.2; // Significantly increased from -0.5
+        break;
+      case 'SIDEWAYS_VOLATILE': 
+        baseScore = -0.1; // Increased from -0.3
+        break;
+      case 'SIDEWAYS_QUIET': 
+        baseScore = 0.1; // Increased from 0.0
+        break;
+      default: 
+        baseScore = 0;
     }
     
-    const avgRisk = recentTrades.reduce((sum, t) => sum + t.prediction.riskScore, 0) / recentTrades.length;
-    if (winRate > 0.55 && avgRisk < 0.5) { // Lowered from 0.6 and 0.4
-      this.adaptiveThresholds.maxRiskScore = Math.min(0.80, this.adaptiveThresholds.maxRiskScore + 0.025);
-    } else if (winRate < 0.45) { // Increased from 0.4
-      this.adaptiveThresholds.maxRiskScore = Math.max(0.60, this.adaptiveThresholds.maxRiskScore - 0.025);
+    // Counter-trend bias detection and correction
+    if (regime === 'WEAK_BEAR' && volatilityRegime === 'LOW') {
+      baseScore += 0.3; // Add counter-trend opportunity boost
+      console.log(`[Regime] 🔄 Counter-trend boost applied for WEAK_BEAR + LOW volatility`);
     }
+    
+    return baseScore;
   }
-  
-  private calculateRawScore(features: any): number {
+
+  // Recalibrated volatility scoring with regime awareness
+  private getRecalibratedVolatilityScore(volatilityRegime: string, marketRegime: string): number {
+    let baseScore = 0.5;
+    
+    switch (volatilityRegime) {
+      case 'LOW': 
+        baseScore = 0.4; // Increased from 0.3
+        break;
+      case 'MEDIUM': 
+        baseScore = 0.6;
+        break;
+      case 'HIGH': 
+        baseScore = 0.8; // Reduced from 0.9
+        break;
+    }
+    
+    // Adjust based on market regime compatibility
+    if (volatilityRegime === 'LOW' && (marketRegime === 'WEAK_BEAR' || marketRegime === 'WEAK_BULL')) {
+      baseScore += 0.2; // Boost for low volatility in weak trends
+    }
+    
+    return baseScore;
+  }
+
+  // Enhanced raw score calculation with regime awareness
+  private calculateEnhancedRawScore(features: any, marketContext: MarketContext): number {
     let score = 0;
     
-    score += features.technical * this.modelWeights['technical'];
-    score += features.momentum * this.modelWeights['momentum'];
-    score += features.volatility * this.modelWeights['volatility_regime'];
-    score += features.market_structure * this.modelWeights['market_structure'];
-    score += features.orderbook_depth * this.modelWeights['orderbook_depth'];
+    // Apply weights with regime-based adjustments
+    const regimeMultipliers = this.getRegimeMultipliers(marketContext);
     
+    score += features.technical * this.modelWeights['technical'] * regimeMultipliers.technical;
+    score += features.momentum * this.modelWeights['momentum'] * regimeMultipliers.momentum;
+    score += features.volatility * this.modelWeights['volatility_regime'] * regimeMultipliers.volatility;
+    score += features.market_structure * this.modelWeights['market_structure'] * regimeMultipliers.market_structure;
+    score += features.orderbook_depth * this.modelWeights['orderbook_depth'] * regimeMultipliers.orderbook;
+    
+    // Performance-based bias with better calibration
     const recentWinRate = this.getRecentWinRate();
-    const performanceBias = (recentWinRate - 0.5) * 0.15;
+    const performanceBias = (recentWinRate - 0.5) * 0.10; // Reduced from 0.15
     score += performanceBias;
+    
+    // Market opportunity boost
+    if (this.detectMarketOpportunity(features, marketContext)) {
+      score += 0.15;
+      console.log(`[AI Model] 🎯 Market opportunity boost applied: +0.15`);
+    }
+    
+    console.log(`[AI Model] 📊 Enhanced raw score: ${score.toFixed(3)}, Performance bias: ${performanceBias.toFixed(3)}`);
     
     return score;
   }
-  
-  private sigmoidActivation(x: number): number {
-    return 1 / (1 + Math.exp(-x * 1.2));
+
+  // Get regime-specific multipliers for feature weights
+  private getRegimeMultipliers(marketContext: MarketContext) {
+    const regime = marketContext.marketRegime;
+    const volatility = marketContext.volatilityRegime;
+    
+    let multipliers = {
+      technical: 1.0,
+      momentum: 1.0,
+      volatility: 1.0,
+      market_structure: 1.0,
+      orderbook: 1.0
+    };
+    
+    // Adjust multipliers based on market conditions
+    switch (regime) {
+      case 'WEAK_BEAR':
+        if (volatility === 'LOW') {
+          multipliers.momentum = 1.3; // Boost momentum signals in weak bear + low vol
+          multipliers.technical = 1.2;
+          console.log(`[Regime] 🔧 Applying WEAK_BEAR + LOW volatility multipliers`);
+        }
+        break;
+      case 'SIDEWAYS_VOLATILE':
+        multipliers.orderbook = 1.4; // Boost orderbook signals in choppy markets
+        multipliers.technical = 0.8;
+        break;
+      case 'STRONG_BULL':
+      case 'STRONG_BEAR':
+        multipliers.momentum = 1.2; // Boost momentum in strong trends
+        break;
+    }
+    
+    return multipliers;
   }
-  
+
+  // Detect market opportunity windows
+  private detectMarketOpportunity(features: any, marketContext: MarketContext): boolean {
+    const now = Date.now();
+    
+    // Check for strong technical confluence
+    const technicalStrength = Math.abs(features.technical);
+    const momentumStrength = Math.abs(features.momentum);
+    const orderbookStrength = Math.abs(features.orderbook_depth);
+    
+    const hasStrongConfluence = technicalStrength > 0.6 && momentumStrength > 0.5 && orderbookStrength > 0.4;
+    
+    // Check for favorable market conditions
+    const hasGoodLiquidity = marketContext.liquidityScore > 0.3;
+    const hasGoodSpread = marketContext.spreadQuality > 0.5;
+    
+    const isOpportunity = hasStrongConfluence && hasGoodLiquidity && hasGoodSpread;
+    
+    if (isOpportunity && !this.marketOpportunityState.isInOpportunityWindow) {
+      this.marketOpportunityState.isInOpportunityWindow = true;
+      this.marketOpportunityState.opportunityStartTime = now;
+      console.log(`[Opportunity] 🎯 Market opportunity window opened`);
+    } else if (!isOpportunity && this.marketOpportunityState.isInOpportunityWindow) {
+      this.marketOpportunityState.isInOpportunityWindow = false;
+      console.log(`[Opportunity] 🚪 Market opportunity window closed`);
+    }
+    
+    return isOpportunity;
+  }
+
+  // Recalibrated sigmoid activation for better probability distribution
+  private recalibratedSigmoidActivation(x: number): number {
+    // Enhanced sigmoid with better slope and offset
+    const slope = 1.5; // Increased from 1.2 for steeper curve
+    const offset = 0.02; // Small offset to boost probabilities slightly
+    return (1 / (1 + Math.exp(-x * slope))) + offset;
+  }
+
+  // Calculate feature contributions for detailed analysis
+  private calculateFeatureContributions(features: any, marketContext: MarketContext): { [key: string]: number } {
+    const regimeMultipliers = this.getRegimeMultipliers(marketContext);
+    
+    return {
+      technical: features.technical * this.modelWeights['technical'] * regimeMultipliers.technical,
+      momentum: features.momentum * this.modelWeights['momentum'] * regimeMultipliers.momentum,
+      volatility: features.volatility * this.modelWeights['volatility_regime'] * regimeMultipliers.volatility,
+      market_structure: features.market_structure * this.modelWeights['market_structure'] * regimeMultipliers.market_structure,
+      orderbook_depth: features.orderbook_depth * this.modelWeights['orderbook_depth'] * regimeMultipliers.orderbook
+    };
+  }
+
+  // Track signal generation frequency and patterns
+  private trackSignalGeneration(signalGenerated: boolean): void {
+    const now = Date.now();
+    
+    if (signalGenerated) {
+      this.signalMetrics.lastSignalTime = now;
+      this.signalMetrics.totalSignalsGenerated++;
+      this.signalMetrics.signalDroughtCount = 0;
+      this.signalMetrics.consecutiveNoSignals = 0;
+      
+      // Update signals per hour tracking
+      const oneHourAgo = now - 3600000;
+      this.signalMetrics.signalsInLastHour++;
+      
+      console.log(`[Signal Tracking] ✅ Signal generated. Total: ${this.signalMetrics.totalSignalsGenerated}, Last hour: ${this.signalMetrics.signalsInLastHour}`);
+    } else {
+      this.signalMetrics.consecutiveNoSignals++;
+      
+      if (this.signalMetrics.consecutiveNoSignals % 10 === 0) {
+        console.log(`[Signal Tracking] ⚠️ ${this.signalMetrics.consecutiveNoSignals} consecutive no-signals`);
+      }
+    }
+    
+    // Calculate average time between signals
+    if (this.signalMetrics.totalSignalsGenerated > 1) {
+      const timeSinceStart = now - (this.signalMetrics.lastSignalTime - (this.signalMetrics.totalSignalsGenerated * 60000)); // Rough estimate
+      this.signalMetrics.avgTimeBetweenSignals = timeSinceStart / this.signalMetrics.totalSignalsGenerated;
+    }
+  }
+
+  // Track prediction accuracy for model improvement
+  private trackPredictionAccuracy(outcome: TradeOutcome): void {
+    const prediction = outcome.prediction;
+    const actualSuccess = outcome.success;
+    const predictedSuccess = prediction.probability > 0.5;
+    
+    const accuracyMatch = actualSuccess === predictedSuccess;
+    
+    console.log(`[Accuracy Tracking] 📊 Prediction vs Reality - Predicted: ${predictedSuccess}, Actual: ${actualSuccess}, Match: ${accuracyMatch}`);
+    console.log(`[Accuracy Tracking] 📈 Expected return: ${prediction.expectedReturn.toFixed(2)}%, Actual: ${outcome.actualReturn.toFixed(2)}%`);
+    console.log(`[Accuracy Tracking] 🎯 MAE prediction: ${prediction.maxAdverseExcursion.toFixed(2)}%, Actual: ${outcome.maxAdverseExcursion.toFixed(2)}%`);
+  }
+
+  // Update optimized Kelly threshold based on performance
+  private updateOptimizedKellyThreshold(): void {
+    if (this.trainingData.length < 15) return;
+    
+    const recentWinRate = this.getRecentWinRate();
+    const profitFactor = this.performanceMetrics.profitFactor;
+    const avgKelly = this.trainingData.slice(-20).reduce((sum, t) => sum + t.prediction.kellyFraction, 0) / 20;
+    
+    console.log(`[Kelly Optimization] 📊 Recent metrics - Win rate: ${recentWinRate.toFixed(3)}, Profit factor: ${profitFactor.toFixed(2)}, Avg Kelly: ${avgKelly.toFixed(3)}`);
+    
+    // More aggressive Kelly threshold adjustment
+    if (recentWinRate > 0.60 && profitFactor > 1.2) {
+      this.adaptiveThresholds.kellyThreshold = Math.min(0.15, this.adaptiveThresholds.kellyThreshold * 1.15);
+      console.log(`[Kelly Optimization] ⬆️ Increasing Kelly threshold to ${this.adaptiveThresholds.kellyThreshold.toFixed(3)}`);
+    } else if (recentWinRate < 0.40 || profitFactor < 0.9) {
+      this.adaptiveThresholds.kellyThreshold = Math.max(0.01, this.adaptiveThresholds.kellyThreshold * 0.85);
+      console.log(`[Kelly Optimization] ⬇️ Decreasing Kelly threshold to ${this.adaptiveThresholds.kellyThreshold.toFixed(3)}`);
+    }
+  }
+
+  // Recalibrated risk score calculation
+  private calculateRecalibratedRiskScore(input: PredictionInput): number {
+    let risk = 0.25; // Lowered base from 0.3
+
+    // Adjusted regime risk penalties
+    switch (input.marketContext.marketRegime) {
+        case 'STRONG_BULL':
+        case 'STRONG_BEAR':
+            risk -= 0.06; // Reduced from -0.08
+            break;
+        case 'WEAK_BULL':
+        case 'WEAK_BEAR':
+            risk -= 0.01; // Reduced from -0.03
+            break;
+        case 'SIDEWAYS_VOLATILE':
+            risk += 0.15; // Reduced from +0.2
+            break;
+        case 'SIDEWAYS_QUIET':
+            risk += 0.05; // Reduced from +0.08
+            break;
+    }
+    
+    // Volatility adjustments
+    if (input.marketContext.volatilityRegime === 'HIGH') {
+      risk += 0.08; // Reduced from 0.12
+    } else if (input.marketContext.volatilityRegime === 'LOW') {
+      risk -= 0.01; // Reduced from -0.03
+    }
+    
+    // Liquidity and spread adjustments (more favorable)
+    risk -= (input.marketContext.liquidityScore - 0.5) * 0.20; // Increased from 0.15
+    risk -= (input.marketContext.spreadQuality - 0.5) * 0.15; // Increased from 0.1
+    
+    // RSI extremes (less penalty)
+    if (input.indicators.rsi_14 < 25 || input.indicators.rsi_14 > 75) {
+      risk += 0.05; // Reduced from 0.08
+    }
+    
+    // Order book imbalance (less penalty)
+    if (Math.abs(input.orderBookImbalance) > 0.6) {
+      risk += 0.03; // Reduced from 0.05
+    }
+    
+    return Math.max(0.05, Math.min(0.80, risk)); // Adjusted range
+  }
+
+  // ... keep existing code (helper methods like estimateExpectedReturn, adaptThresholdsBasedOnPerformance, etc.) the same ...
+
   private estimateExpectedReturn(probability: number, confidence: number, indicators: AdvancedIndicators, marketContext: MarketContext): number {
     if (indicators.bollinger_middle <= 0) {
         return 0.1;
@@ -438,7 +696,7 @@ export class AIPredictionModel {
     const volatilityMultiplier = marketContext.volatilityRegime === 'HIGH' ? 1.1 : 
                                 marketContext.volatilityRegime === 'LOW' ? 0.9 : 1.0;
     
-    const liquidityMultiplier = 0.8 + (marketContext.liquidityScore * 0.4); // 0.8 to 1.2 range
+    const liquidityMultiplier = 0.8 + (marketContext.liquidityScore * 0.4);
     
     const baseReturn = potentialReturnPercent * 0.25;
     const adjustedReturn = baseReturn * regimeMultiplier * volatilityMultiplier * liquidityMultiplier;
@@ -448,7 +706,7 @@ export class AIPredictionModel {
   }
   
   private estimateOptimalTimeHorizon(marketContext: MarketContext, indicators: AdvancedIndicators): number {
-    let baseTime = 60; // Reduced base time for more active trading
+    let baseTime = 60;
     
     switch (marketContext.marketRegime) {
         case 'STRONG_BULL':
@@ -463,8 +721,7 @@ export class AIPredictionModel {
             break;
     }
     
-    // Adjust for liquidity
-    baseTime *= (1.5 - marketContext.liquidityScore * 0.5); // Better liquidity = shorter holds
+    baseTime *= (1.5 - marketContext.liquidityScore * 0.5);
     
     if (marketContext.volatilityRegime === 'HIGH') {
       baseTime *= 0.6;
@@ -476,56 +733,60 @@ export class AIPredictionModel {
     
     return Math.max(20, Math.min(180, baseTime));
   }
-  
-  private calculateEnhancedRiskScore(input: PredictionInput): number {
-    let risk = 0.3;
 
-    switch (input.marketContext.marketRegime) {
-        case 'STRONG_BULL':
-        case 'STRONG_BEAR':
-            risk -= 0.08;
-            break;
-        case 'WEAK_BULL':
-        case 'WEAK_BEAR':
-            risk -= 0.03;
-            break;
-        case 'SIDEWAYS_VOLATILE':
-            risk += 0.2;
-            break;
-        case 'SIDEWAYS_QUIET':
-            risk += 0.08;
-            break;
-    }
+  private updateEnhancedPerformanceMetrics() {
+    if (this.trainingData.length === 0) return;
     
-    if (input.marketContext.volatilityRegime === 'HIGH') {
-      risk += 0.12;
-    } else if (input.marketContext.volatilityRegime === 'LOW') {
-      risk -= 0.03;
-    }
+    const recentTrades = this.trainingData.slice(-50);
+    const successfulTrades = recentTrades.filter(t => t.success);
     
-    // Liquidity and spread adjustments
-    risk -= (input.marketContext.liquidityScore - 0.5) * 0.15;
-    risk -= (input.marketContext.spreadQuality - 0.5) * 0.1;
+    this.performanceMetrics.winRate = successfulTrades.length / recentTrades.length;
+    this.performanceMetrics.totalTrades = this.trainingData.length;
     
-    if (input.indicators.rsi_14 < 25 || input.indicators.rsi_14 > 75) {
-      risk += 0.08;
-    }
+    const returns = recentTrades.map(t => t.actualReturn);
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length);
+    this.performanceMetrics.sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
     
-    if (Math.abs(input.orderBookImbalance) > 0.6) {
-      risk += 0.05;
-    }
+    this.performanceMetrics.avgMAE = recentTrades.reduce((sum, t) => sum + t.maxAdverseExcursion, 0) / recentTrades.length;
+    this.performanceMetrics.avgMFE = recentTrades.reduce((sum, t) => sum + t.maxFavorableExcursion, 0) / recentTrades.length;
     
-    return Math.max(0.1, Math.min(0.75, risk));
+    const grossProfit = recentTrades.filter(t => t.success).reduce((sum, t) => sum + Math.abs(t.actualReturn), 0);
+    const grossLoss = recentTrades.filter(t => !t.success).reduce((sum, t) => sum + Math.abs(t.actualReturn), 0);
+    this.performanceMetrics.profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 1.0;
+    
+    console.log(`[AI Model] 📊 Performance metrics - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Profit factor: ${this.performanceMetrics.profitFactor.toFixed(2)}, Avg MAE: ${this.performanceMetrics.avgMAE.toFixed(3)}%`);
   }
-  
+
+  private adaptThresholdsBasedOnPerformance() {
+    if (this.trainingData.length < 10) return;
+    
+    const recentTrades = this.trainingData.slice(-20);
+    const winRate = recentTrades.filter(t => t.success).length / recentTrades.length;
+    const profitFactor = this.performanceMetrics.profitFactor;
+    
+    // More aggressive threshold adaptation
+    if (winRate > 0.55 && profitFactor > 1.15) {
+      this.adaptiveThresholds.minProbability = Math.min(0.52, this.adaptiveThresholds.minProbability + 0.008);
+      this.adaptiveThresholds.minConfidence = Math.min(0.45, this.adaptiveThresholds.minConfidence + 0.008);
+    } else if (winRate < 0.42 || profitFactor < 0.92) {
+      this.adaptiveThresholds.minProbability = Math.max(0.45, this.adaptiveThresholds.minProbability - 0.012);
+      this.adaptiveThresholds.minConfidence = Math.max(0.25, this.adaptiveThresholds.minConfidence - 0.012);
+    }
+    
+    const avgRisk = recentTrades.reduce((sum, t) => sum + t.prediction.riskScore, 0) / recentTrades.length;
+    if (winRate > 0.52 && avgRisk < 0.45) {
+      this.adaptiveThresholds.maxRiskScore = Math.min(0.85, this.adaptiveThresholds.maxRiskScore + 0.02);
+    } else if (winRate < 0.48) {
+      this.adaptiveThresholds.maxRiskScore = Math.max(0.65, this.adaptiveThresholds.maxRiskScore - 0.02);
+    }
+  }
+
   private retrainModelWithRegimeAwareness() {
     if (this.trainingData.length < 20) return;
     
     const recentTrades = this.trainingData.slice(-40);
-    const learningRate = 0.025;
-    
-    // Separate performance by market regime
-    const regimePerformance = this.analyzeRegimePerformance(recentTrades);
+    const learningRate = 0.03; // Increased from 0.025
     
     const successfulTrades = recentTrades.filter(t => t.success);
     const failedTrades = recentTrades.filter(t => !t.success);
@@ -539,9 +800,9 @@ export class AIPredictionModel {
         const failAvg = failFeatures[key] || 0;
         const importance = Math.abs(successAvg - failAvg);
         
-        if (importance > 0.25) {
+        if (importance > 0.2) { // Lowered threshold from 0.25
           this.modelWeights[key] *= (1 + learningRate * 1.5);
-        } else if (importance < 0.1) {
+        } else if (importance < 0.08) { // Lowered threshold from 0.1
           this.modelWeights[key] *= (1 - learningRate * 0.7);
         }
         
@@ -554,15 +815,9 @@ export class AIPredictionModel {
       });
     }
     
-    console.log(`[AI Model] Enhanced retraining completed - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Profit factor: ${this.performanceMetrics.profitFactor.toFixed(2)}`);
+    console.log(`[AI Model] 🎓 Retraining completed - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Profit factor: ${this.performanceMetrics.profitFactor.toFixed(2)}`);
   }
-  
-  private analyzeRegimePerformance(trades: TradeOutcome[]) {
-    // This would analyze performance by market regime
-    // Implementation would track which regimes perform best
-    return {};
-  }
-  
+
   private analyzeFeaturePerformance(trades: TradeOutcome[]): { [key: string]: number } {
     const features: { [key: string]: number } = {};
     
@@ -586,15 +841,28 @@ export class AIPredictionModel {
     const recent = this.trainingData.slice(-15);
     return recent.filter(t => t.success).length / recent.length;
   }
-  
-  // Enhanced helper methods
-  private normalizeRSI(rsi: number): number {
-    // More aggressive RSI normalization for better signals
-    if (rsi > 70) return (rsi - 70) / 30; // 0 to 1 for overbought
-    if (rsi < 30) return (30 - rsi) / 30; // 0 to 1 for oversold
-    return (rsi - 50) / 50; // -1 to 1 for neutral
+
+  private estimateMAE(indicators: AdvancedIndicators, marketContext: MarketContext): number {
+    let baseMAE = 0.5;
+    
+    const atrPercent = indicators.bollinger_middle > 0 ? 
+      (indicators.atr / indicators.bollinger_middle) * 100 : 0.5;
+    
+    baseMAE = Math.max(0.3, Math.min(2.0, atrPercent * 0.8));
+    
+    switch (marketContext.marketRegime) {
+      case 'SIDEWAYS_VOLATILE':
+        baseMAE *= 1.5;
+        break;
+      case 'STRONG_BULL':
+      case 'STRONG_BEAR':
+        baseMAE *= 0.8;
+        break;
+    }
+    
+    return baseMAE;
   }
-  
+
   private calculateBollingerPosition(indicators: AdvancedIndicators): number {
     const range = indicators.bollinger_upper - indicators.bollinger_lower;
     if (range === 0) return 0;
@@ -610,39 +878,11 @@ export class AIPredictionModel {
     return Math.min(width * 10, 1);
   }
   
-  private calculatePriceMomentum(recentPrices: number[]): number {
-    if (recentPrices.length < 2) return 0;
-    
-    const momentum = (recentPrices[recentPrices.length - 1] - recentPrices[0]) / recentPrices[0];
-    return Math.tanh(momentum * 300);
-  }
-  
-  private getVolatilityScore(regime: string): number {
-    switch (regime) {
-      case 'LOW': return 0.3;
-      case 'MEDIUM': return 0.6;
-      case 'HIGH': return 0.9;
-      default: return 0.5;
-    }
-  }
-  
   private calculateSRStrength(indicators: AdvancedIndicators): number {
     const range = indicators.resistance_level - indicators.support_level;
     const currentPrice = (indicators.support_level + indicators.resistance_level) / 2;
     if (currentPrice <= 0) return 0;
     return Math.min(range / currentPrice, 0.05) * 20;
-  }
-  
-  private getMarketRegimeScore(regime: MarketContext['marketRegime']): number {
-    switch (regime) {
-      case 'STRONG_BULL': return 0.9;
-      case 'WEAK_BULL': return 0.5;
-      case 'STRONG_BEAR': return -0.9;
-      case 'WEAK_BEAR': return -0.5;
-      case 'SIDEWAYS_VOLATILE': return -0.3;
-      case 'SIDEWAYS_QUIET': return 0.0;
-      default: return 0;
-    }
   }
   
   private getMarketHourScore(hour: string): number {
@@ -654,14 +894,5 @@ export class AIPredictionModel {
       case 'LOW_LIQUIDITY': return 0.4;
       default: return 0.5;
     }
-  }
-  
-  private getTimeOfDayScore(hour: number): number {
-    // Enhanced time scoring for different trading sessions
-    if (hour >= 8 && hour <= 12) return 0.9; // European morning
-    if (hour >= 13 && hour <= 17) return 1.0; // Overlap period
-    if (hour >= 18 && hour <= 22) return 0.8; // US session
-    if (hour >= 0 && hour <= 3) return 0.6; // Asian session
-    return 0.3; // Low activity periods
   }
 }
