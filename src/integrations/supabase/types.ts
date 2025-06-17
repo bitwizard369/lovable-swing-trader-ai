@@ -63,6 +63,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_metrics_session"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "performance_metrics_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
@@ -118,6 +125,13 @@ export type Database = {
           total_pnl?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_snapshots_session"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "portfolio_snapshots_session_id_fkey"
             columns: ["session_id"]
@@ -198,6 +212,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_positions_session"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "positions_session_id_fkey"
             columns: ["session_id"]
@@ -315,6 +336,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_signals_session"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trading_signals_position_id_fkey"
             columns: ["position_id"]
             isOneToOne: false
@@ -335,7 +363,43 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      close_position: {
+        Args: {
+          p_session_id: string
+          p_external_id: string
+          p_exit_price: number
+          p_realized_pnl: number
+        }
+        Returns: undefined
+      }
+      get_active_positions_for_session: {
+        Args: { p_session_id: string }
+        Returns: {
+          id: string
+          external_id: string
+          symbol: string
+          side: string
+          size: number
+          entry_price: number
+          current_price: number
+          unrealized_pnl: number
+          realized_pnl: number
+          status: string
+          entry_time: string
+          prediction_data: Json
+          created_at: string
+          updated_at: string
+        }[]
+      }
+      update_position_price_and_pnl: {
+        Args: {
+          p_session_id: string
+          p_external_id: string
+          p_current_price: number
+          p_unrealized_pnl: number
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

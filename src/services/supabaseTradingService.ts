@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 import { Position } from '@/types/trading';
 
@@ -169,6 +168,8 @@ class SupabaseTradingService {
 
       if (error) throw error;
 
+      console.log(`[DB] Position saved: ${position.id} - ${position.side} ${position.symbol} @ ${position.currentPrice}`);
+
       return {
         ...data,
         side: data.side as 'BUY' | 'SELL',
@@ -177,6 +178,40 @@ class SupabaseTradingService {
     } catch (error) {
       console.error('Error saving position:', error);
       return null;
+    }
+  }
+
+  async updatePositionPriceAndPnL(sessionId: string, positionId: string, currentPrice: number, unrealizedPnL: number): Promise<void> {
+    try {
+      const { error } = await supabase.rpc('update_position_price_and_pnl', {
+        p_session_id: sessionId,
+        p_external_id: positionId,
+        p_current_price: currentPrice,
+        p_unrealized_pnl: unrealizedPnL
+      });
+
+      if (error) throw error;
+
+      console.log(`[DB] Position ${positionId} price updated: ${currentPrice}, PnL: ${unrealizedPnL.toFixed(2)}`);
+    } catch (error) {
+      console.error('Error updating position price and PnL:', error);
+    }
+  }
+
+  async closePosition(sessionId: string, positionId: string, exitPrice: number, realizedPnL: number): Promise<void> {
+    try {
+      const { error } = await supabase.rpc('close_position', {
+        p_session_id: sessionId,
+        p_external_id: positionId,
+        p_exit_price: exitPrice,
+        p_realized_pnl: realizedPnL
+      });
+
+      if (error) throw error;
+
+      console.log(`[DB] Position ${positionId} closed at ${exitPrice}, realized PnL: ${realizedPnL.toFixed(2)}`);
+    } catch (error) {
+      console.error('Error closing position:', error);
     }
   }
 
@@ -191,6 +226,25 @@ class SupabaseTradingService {
       if (error) throw error;
     } catch (error) {
       console.error('Error updating position:', error);
+    }
+  }
+
+  async getActivePositions(sessionId: string): Promise<DatabasePosition[]> {
+    try {
+      const { data, error } = await supabase.rpc('get_active_positions_for_session', {
+        p_session_id: sessionId
+      });
+
+      if (error) throw error;
+
+      return (data || []).map(position => ({
+        ...position,
+        side: position.side as 'BUY' | 'SELL',
+        status: position.status as 'OPEN' | 'CLOSED' | 'PENDING'
+      })) as DatabasePosition[];
+    } catch (error) {
+      console.error('Error getting active positions:', error);
+      return [];
     }
   }
 
@@ -285,8 +339,8 @@ class SupabaseTradingService {
 
       if (sessionError) throw sessionError;
 
-      // Get positions
-      const positions = await this.getPositions(sessionId);
+      // Get active positions using the new function
+      const positions = await this.getActivePositions(sessionId);
 
       // Get last snapshot
       const { data: snapshotData } = await supabase

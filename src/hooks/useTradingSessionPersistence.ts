@@ -23,6 +23,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
   const snapshotTimeoutRef = useRef<NodeJS.Timeout>();
   const lastSaveDataRef = useRef<string>('');
+  const lastPriceUpdateRef = useRef<Map<string, { price: number, pnl: number }>>(new Map());
 
   // Check authentication status
   useEffect(() => {
@@ -127,22 +128,22 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }
   }, [config.symbol, isAuthenticated]);
 
-  // Save portfolio state
+  // Save portfolio state with better debouncing
   const savePortfolioState = useCallback(async (portfolio: Portfolio) => {
     if (!currentSession || !isAuthenticated) return;
 
-    // Debounce saves to avoid too many database calls
+    // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        // Only save if data has changed
+        // Only save if data has changed significantly
         const currentData = JSON.stringify({
-          balance: portfolio.availableBalance,
-          equity: portfolio.equity,
-          pnl: portfolio.totalPnL,
+          balance: Math.round(portfolio.availableBalance * 100) / 100,
+          equity: Math.round(portfolio.equity * 100) / 100,
+          pnl: Math.round(portfolio.totalPnL * 100) / 100,
           positions: portfolio.positions.length
         });
 
@@ -158,7 +159,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
           equity: portfolio.equity
         });
 
-        console.log(`[Session] 💾 Portfolio state saved - Equity: ${portfolio.equity.toFixed(2)}`);
+        console.log(`[Session] 💾 Portfolio state saved - Equity: ${portfolio.equity.toFixed(2)}, P&L: ${portfolio.totalPnL.toFixed(2)}`);
       } catch (error) {
         console.error('[Session] Error saving portfolio state:', error);
       }
@@ -171,24 +172,48 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
 
     try {
       await tradingService.savePosition(currentSession.id, position);
-      console.log(`[Session] 📍 Position saved: ${position.side} ${position.symbol}`);
+      console.log(`[Session] 📍 Position saved: ${position.side} ${position.symbol} @ ${position.currentPrice}`);
     } catch (error) {
       console.error('[Session] Error saving position:', error);
     }
   }, [currentSession, isAuthenticated]);
 
-  // Update position
+  // Updated to use the new optimized price update function
   const updatePosition = useCallback(async (positionId: string, updates: Partial<Position>) => {
     if (!currentSession || !isAuthenticated) return;
 
     try {
-      const dbUpdates: any = {};
-      if (updates.currentPrice !== undefined) dbUpdates.current_price = updates.currentPrice;
-      if (updates.unrealizedPnL !== undefined) dbUpdates.unrealized_pnl = updates.unrealizedPnL;
-      if (updates.realizedPnL !== undefined) dbUpdates.realized_pnl = updates.realizedPnL;
-      if (updates.status !== undefined) dbUpdates.status = updates.status;
+      // Check if this is a price/PnL update and use the optimized function
+      if (updates.currentPrice !== undefined && updates.unrealizedPnL !== undefined) {
+        const lastUpdate = lastPriceUpdateRef.current.get(positionId);
+        
+        // Only update if price or PnL has changed significantly (to avoid unnecessary DB calls)
+        if (!lastUpdate || 
+            Math.abs(lastUpdate.price - updates.currentPrice) > 0.01 || 
+            Math.abs(lastUpdate.pnl - updates.unrealizedPnL) > 0.01) {
+          
+          await tradingService.updatePositionPriceAndPnL(
+            currentSession.id, 
+            positionId, 
+            updates.currentPrice, 
+            updates.unrealizedPnL
+          );
+          
+          lastPriceUpdateRef.current.set(positionId, {
+            price: updates.currentPrice,
+            pnl: updates.unrealizedPnL
+          });
+        }
+      } else {
+        // For other updates, use the legacy method
+        const dbUpdates: any = {};
+        if (updates.currentPrice !== undefined) dbUpdates.current_price = updates.currentPrice;
+        if (updates.unrealizedPnL !== undefined) dbUpdates.unrealized_pnl = updates.unrealizedPnL;
+        if (updates.realizedPnL !== undefined) dbUpdates.realized_pnl = updates.realizedPnL;
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
 
-      await tradingService.updatePosition(currentSession.id, positionId, dbUpdates);
+        await tradingService.updatePosition(currentSession.id, positionId, dbUpdates);
+      }
     } catch (error) {
       console.error('[Session] Error updating position:', error);
     }
@@ -207,7 +232,6 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }
   }, [currentSession, isAuthenticated]);
 
-  // Take portfolio snapshot
   const takePortfolioSnapshot = useCallback(async (portfolio: Portfolio, marketContext?: any, indicators?: any) => {
     if (!currentSession || !isAuthenticated) return;
 
@@ -219,23 +243,6 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }
   }, [currentSession, isAuthenticated]);
 
-  // Auto-save and snapshot intervals
-  useEffect(() => {
-    if (!config.autoSave || !currentSession) return;
-
-    // Auto portfolio snapshots
-    const snapshotInterval = setInterval(() => {
-      // This will be called by the trading system
-    }, config.snapshotInterval);
-
-    return () => {
-      clearInterval(snapshotInterval);
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
-    };
-  }, [config.autoSave, config.snapshotInterval, currentSession]);
-
-  // End session
   const endSession = useCallback(async () => {
     if (!currentSession) return;
 
@@ -243,11 +250,22 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       await tradingService.endTradingSession(currentSession.id);
       setCurrentSession(null);
       setRecoveredData(null);
+      lastPriceUpdateRef.current.clear();
       console.log(`[Session] 🛑 Session ended: ${currentSession.id}`);
     } catch (error) {
       console.error('[Session] Error ending session:', error);
     }
   }, [currentSession]);
+
+  // Auto-save and snapshot intervals
+  useEffect(() => {
+    if (!config.autoSave || !currentSession) return;
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
+    };
+  }, [config.autoSave, currentSession]);
 
   return {
     currentSession,

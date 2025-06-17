@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAdvancedTradingSystem } from './useAdvancedTradingSystem';
 import { useTradingSessionPersistence } from './useTradingSessionPersistence';
@@ -25,6 +26,7 @@ export const useAdvancedTradingSystemWithPersistence = (
 
   const portfolioRef = useRef<Portfolio>(tradingSystem.portfolio);
   const positionsRef = useRef<Position[]>(tradingSystem.portfolio.positions);
+  const priceUpdateCounterRef = useRef<number>(0);
 
   // Get current market price for real-time updates
   const getCurrentPrice = useCallback(() => {
@@ -39,12 +41,6 @@ export const useAdvancedTradingSystemWithPersistence = (
     const currentMarketPrice = getCurrentPrice();
     const currentPrice = currentMarketPrice || positionTracking.position.currentPrice;
     
-    console.log(`[Position Update] Converting position ${positionTracking.position.id}:`);
-    console.log(`  Entry Price: ${positionTracking.position.entryPrice}`);
-    console.log(`  Stored Current Price: ${positionTracking.position.currentPrice}`);
-    console.log(`  Market Current Price: ${currentMarketPrice}`);
-    console.log(`  Using Price: ${currentPrice}`);
-
     // Calculate real-time unrealized PnL
     const priceDiff = currentPrice - positionTracking.position.entryPrice;
     const unrealizedPnL = positionTracking.position.side === 'BUY' 
@@ -65,19 +61,15 @@ export const useAdvancedTradingSystemWithPersistence = (
     };
   }, [getCurrentPrice]);
 
-  // Debug current positions and prices
+  // Debug current positions and prices with reduced frequency
   useEffect(() => {
     if (tradingSystem.activePositions.length > 0) {
-      console.log(`[Position Debug] Active positions count: ${tradingSystem.activePositions.length}`);
-      console.log(`[Market Debug] Current bids/asks:`, { 
-        bestBid: bids[0]?.price, 
-        bestAsk: asks[0]?.price,
-        midPrice: getCurrentPrice()
-      });
+      priceUpdateCounterRef.current++;
       
-      tradingSystem.activePositions.forEach((pos, index) => {
-        console.log(`[Position ${index}] Entry: ${pos.position.entryPrice}, Current: ${pos.position.currentPrice}, ID: ${pos.position.id}`);
-      });
+      // Only log every 10th update to reduce noise
+      if (priceUpdateCounterRef.current % 10 === 0) {
+        console.log(`[Position Debug] Active positions: ${tradingSystem.activePositions.length}, Mid price: ${getCurrentPrice()?.toFixed(4)}`);
+      }
     }
   }, [tradingSystem.activePositions, bids, asks, getCurrentPrice]);
 
@@ -117,18 +109,19 @@ export const useAdvancedTradingSystemWithPersistence = (
     initializeSession();
   }, [persistence.isAuthenticated, isInitialized]);
 
-  // Auto-save portfolio state when it changes
+  // Auto-save portfolio state when it changes (with improved efficiency)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession) return;
 
     const currentPortfolio = tradingSystem.portfolio;
     
-    // Only save if portfolio has meaningful changes
+    // Only save if portfolio has meaningful changes (increased threshold)
     if (
-      Math.abs(currentPortfolio.equity - portfolioRef.current.equity) > 0.01 ||
+      Math.abs(currentPortfolio.equity - portfolioRef.current.equity) > 0.1 ||
+      Math.abs(currentPortfolio.totalPnL - portfolioRef.current.totalPnL) > 0.1 ||
       currentPortfolio.positions.length !== portfolioRef.current.positions.length
     ) {
-      console.log(`[Portfolio Save] Equity changed: ${portfolioRef.current.equity} -> ${currentPortfolio.equity}`);
+      console.log(`[Portfolio Save] Equity: ${portfolioRef.current.equity.toFixed(2)} -> ${currentPortfolio.equity.toFixed(2)}, P&L: ${currentPortfolio.totalPnL.toFixed(2)}`);
       persistence.savePortfolioState(currentPortfolio);
       portfolioRef.current = currentPortfolio;
     }
@@ -146,7 +139,7 @@ export const useAdvancedTradingSystemWithPersistence = (
     if (newPositions.length > 0) {
       console.log(`[Position Save] Saving ${newPositions.length} new positions`);
       newPositions.forEach(position => {
-        console.log(`[Position Save] Position ${position.id}: Entry=${position.entryPrice}, Current=${position.currentPrice}, PnL=${position.unrealizedPnL}`);
+        console.log(`[Position Save] Position ${position.id}: Entry=${position.entryPrice}, Current=${position.currentPrice}, PnL=${position.unrealizedPnL.toFixed(2)}`);
         persistence.savePosition(position);
       });
     }
@@ -154,21 +147,26 @@ export const useAdvancedTradingSystemWithPersistence = (
     positionsRef.current = currentPositions;
   }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
-  // Update existing positions with real-time prices
+  // Update existing positions with real-time prices (optimized with throttling)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession || tradingSystem.activePositions.length === 0) return;
 
-    console.log(`[Real-time Update] Updating ${tradingSystem.activePositions.length} positions with current market price`);
-    
-    tradingSystem.activePositions.forEach(positionTracking => {
-      const updatedPosition = convertToPosition(positionTracking);
-      persistence.updatePosition(updatedPosition.id, {
-        currentPrice: updatedPosition.currentPrice,
-        unrealizedPnL: updatedPosition.unrealizedPnL,
-        timestamp: new Date().getTime()
+    // Throttle real-time updates to every 2 seconds to reduce database load
+    const updateInterval = setInterval(() => {
+      console.log(`[Real-time Update] Updating ${tradingSystem.activePositions.length} positions with current market price`);
+      
+      tradingSystem.activePositions.forEach(positionTracking => {
+        const updatedPosition = convertToPosition(positionTracking);
+        persistence.updatePosition(updatedPosition.id, {
+          currentPrice: updatedPosition.currentPrice,
+          unrealizedPnL: updatedPosition.unrealizedPnL,
+          timestamp: new Date().getTime()
+        });
       });
-    });
-  }, [bids, asks, tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
+    }, 2000); // 2 second interval
+
+    return () => clearInterval(updateInterval);
+  }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
   // Take periodic snapshots
   useEffect(() => {
