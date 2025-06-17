@@ -218,6 +218,30 @@ class SupabaseTradingService {
     }
   }
 
+  // NEW: Proper position closing with complete data
+  async closePositionComplete(sessionId: string, positionId: string, exitPrice: number, realizedPnL: number): Promise<void> {
+    try {
+      console.log(`[DB] 🔴 Closing position ${positionId} at price ${exitPrice}, PnL: ${realizedPnL.toFixed(2)}`);
+      
+      const { error } = await supabase.rpc('close_position_complete', {
+        p_session_id: sessionId,
+        p_external_id: positionId,
+        p_exit_price: exitPrice,
+        p_realized_pnl: realizedPnL
+      });
+
+      if (error) {
+        console.error('[DB] Error closing position completely:', error);
+        throw error;
+      }
+
+      console.log(`[DB] ✅ Position ${positionId} closed completely at ${exitPrice}, PnL: ${realizedPnL.toFixed(2)}`);
+    } catch (error) {
+      console.error('Error closing position completely:', error);
+      throw error;
+    }
+  }
+
   async closePosition(sessionId: string, positionId: string, exitPrice: number, realizedPnL: number): Promise<void> {
     try {
       const { error } = await supabase.rpc('close_position', {
@@ -353,6 +377,54 @@ class SupabaseTradingService {
     }
   }
 
+  // NEW: Session validation function
+  async validateSessionPositions(sessionId: string): Promise<{
+    position_count: number;
+    open_positions: number;
+    old_open_positions: number;
+    validation_status: string;
+  } | null> {
+    try {
+      const { data, error } = await supabase.rpc('validate_session_positions', {
+        p_session_id: sessionId
+      });
+
+      if (error) {
+        console.error('[DB] Error validating session positions:', error);
+        throw error;
+      }
+
+      const result = data && data.length > 0 ? data[0] : null;
+      if (result) {
+        console.log(`[DB] 🔍 Session validation: ${result.position_count} total, ${result.open_positions} open, ${result.old_open_positions} old open`);
+        console.log(`[DB] 🔍 Validation status: ${result.validation_status}`);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error validating session positions:', error);
+      return null;
+    }
+  }
+
+  // NEW: Clean up old sessions
+  async cleanupOldSessions(): Promise<void> {
+    try {
+      console.log('[DB] 🧹 Cleaning up old sessions...');
+      
+      const { error } = await supabase.rpc('cleanup_old_sessions');
+
+      if (error) {
+        console.error('[DB] Error cleaning up old sessions:', error);
+        throw error;
+      }
+
+      console.log('[DB] ✅ Old sessions cleanup completed');
+    } catch (error) {
+      console.error('Error cleaning up old sessions:', error);
+    }
+  }
+
   async recoverTradingSession(sessionId: string): Promise<{
     session: TradingSession;
     positions: DatabasePosition[];
@@ -360,6 +432,9 @@ class SupabaseTradingService {
   } | null> {
     try {
       console.log(`[DB] Recovering session: ${sessionId}`);
+
+      // Validate session positions first
+      await this.validateSessionPositions(sessionId);
 
       // Get session data
       const { data: sessionData, error: sessionError } = await supabase
@@ -401,6 +476,9 @@ class SupabaseTradingService {
 
   async endTradingSession(sessionId: string): Promise<void> {
     try {
+      // Close all open positions before ending session
+      await this.closeAllOpenPositions(sessionId);
+
       const { error } = await supabase
         .from('trading_sessions')
         .update({
@@ -417,6 +495,32 @@ class SupabaseTradingService {
       console.log(`[DB] ✅ Session ended: ${sessionId}`);
     } catch (error) {
       console.error('Error ending trading session:', error);
+    }
+  }
+
+  // NEW: Close all open positions in a session
+  private async closeAllOpenPositions(sessionId: string): Promise<void> {
+    try {
+      console.log(`[DB] 🔴 Closing all open positions for session: ${sessionId}`);
+      
+      const { error } = await supabase
+        .from('positions')
+        .update({
+          status: 'CLOSED',
+          exit_time: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('session_id', sessionId)
+        .eq('status', 'OPEN');
+
+      if (error) {
+        console.error('[DB] Error closing all positions:', error);
+        throw error;
+      }
+
+      console.log(`[DB] ✅ All open positions closed for session: ${sessionId}`);
+    } catch (error) {
+      console.error('Error closing all open positions:', error);
     }
   }
 }

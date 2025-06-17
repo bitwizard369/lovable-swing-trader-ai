@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { tradingService, TradingSession, DatabasePosition } from '@/services/supabaseTradingService';
 import { Portfolio, Position } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface SessionPersistenceConfig {
   symbol: string;
@@ -24,6 +25,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
   const snapshotTimeoutRef = useRef<NodeJS.Timeout>();
   const lastSaveDataRef = useRef<string>('');
   const lastPriceUpdateRef = useRef<Map<string, { price: number, pnl: number, timestamp: number }>>(new Map());
+  const cleanupIntervalRef = useRef<NodeJS.Timeout>();
 
   // Check authentication status
   useEffect(() => {
@@ -46,6 +48,30 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     return () => subscription.unsubscribe();
   }, []);
 
+  // Initialize periodic cleanup (every 30 minutes)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const startCleanup = () => {
+      cleanupIntervalRef.current = setInterval(async () => {
+        try {
+          console.log('[Session] 🧹 Running periodic cleanup...');
+          await tradingService.cleanupOldSessions();
+        } catch (error) {
+          console.error('[Session] Error during periodic cleanup:', error);
+        }
+      }, 30 * 60 * 1000); // 30 minutes
+    };
+
+    startCleanup();
+
+    return () => {
+      if (cleanupIntervalRef.current) {
+        clearInterval(cleanupIntervalRef.current);
+      }
+    };
+  }, [isAuthenticated]);
+
   // Initialize or recover session
   const initializeSession = useCallback(async (initialPortfolio: Portfolio, tradingConfig: any) => {
     if (!isAuthenticated) {
@@ -57,11 +83,23 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       setIsRecovering(true);
       console.log('[Session] 🚀 Initializing trading session...');
 
+      // Clean up old sessions first
+      await tradingService.cleanupOldSessions();
+
       // Try to get existing active session
       const existingSession = await tradingService.getActiveTradingSession(config.symbol);
       
       if (existingSession) {
         console.log(`[Session] 🔄 Recovering existing session: ${existingSession.id}`);
+        
+        // Validate session before recovery
+        const validation = await tradingService.validateSessionPositions(existingSession.id);
+        if (validation) {
+          if (validation.old_open_positions > 0) {
+            console.warn(`[Session] ⚠️ Found ${validation.old_open_positions} old open positions that were cleaned up`);
+            toast.warning(`Found ${validation.old_open_positions} stale positions that were cleaned up`);
+          }
+        }
         
         // Recover session data
         const recoveryData = await tradingService.recoverTradingSession(existingSession.id);
@@ -184,6 +222,18 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }
   }, [currentSession, isAuthenticated]);
 
+  // NEW: Close position properly
+  const closePosition = useCallback(async (positionId: string, exitPrice: number, realizedPnL: number) => {
+    if (!currentSession || !isAuthenticated) return;
+
+    try {
+      await tradingService.closePositionComplete(currentSession.id, positionId, exitPrice, realizedPnL);
+      console.log(`[Session] 🔴 Position ${positionId} closed: Price=${exitPrice.toFixed(4)}, PnL=${realizedPnL.toFixed(2)}`);
+    } catch (error) {
+      console.error('[Session] Error closing position:', error);
+    }
+  }, [currentSession, isAuthenticated]);
+
   // Optimized position price updates with smart throttling
   const updatePosition = useCallback(async (positionId: string, updates: Partial<Position>) => {
     if (!currentSession || !isAuthenticated) return;
@@ -257,16 +307,12 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
   }, [currentSession, isAuthenticated]);
 
   const endSession = useCallback(async () => {
-    if (!currentSession) return;
-
-    try {
+    if (currentSession) {
       await tradingService.endTradingSession(currentSession.id);
       setCurrentSession(null);
       setRecoveredData(null);
       lastPriceUpdateRef.current.clear();
       console.log(`[Session] 🛑 Session ended: ${currentSession.id}`);
-    } catch (error) {
-      console.error('[Session] Error ending session:', error);
     }
   }, [currentSession]);
 
@@ -275,6 +321,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
+      if (cleanupIntervalRef.current) clearInterval(cleanupIntervalRef.current);
     };
   }, []);
 
@@ -287,6 +334,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     savePortfolioState,
     savePosition,
     updatePosition,
+    closePosition, // NEW: Added closePosition method
     saveSignal,
     takePortfolioSnapshot,
     endSession

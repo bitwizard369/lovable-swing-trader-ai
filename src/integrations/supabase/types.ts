@@ -335,7 +335,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_sessions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       close_position: {
+        Args: {
+          p_session_id: string
+          p_external_id: string
+          p_exit_price: number
+          p_realized_pnl: number
+        }
+        Returns: undefined
+      }
+      close_position_complete: {
         Args: {
           p_session_id: string
           p_external_id: string
@@ -371,6 +384,15 @@ export type Database = {
           p_unrealized_pnl: number
         }
         Returns: undefined
+      }
+      validate_session_positions: {
+        Args: { p_session_id: string }
+        Returns: {
+          position_count: number
+          open_positions: number
+          old_open_positions: number
+          validation_status: string
+        }[]
       }
     }
     Enums: {

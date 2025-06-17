@@ -27,6 +27,7 @@ export const useAdvancedTradingSystemWithPersistence = (
   const portfolioRef = useRef<Portfolio>(tradingSystem.portfolio);
   const positionsRef = useRef<Position[]>(tradingSystem.portfolio.positions);
   const initializationRef = useRef<boolean>(false);
+  const closedPositionsRef = useRef<Set<string>>(new Set());
 
   // Get current market price for real-time updates
   const getCurrentPrice = useCallback(() => {
@@ -138,6 +139,35 @@ export const useAdvancedTradingSystemWithPersistence = (
     positionsRef.current = [...currentPositions];
   }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
+  // NEW: Handle position closures properly
+  useEffect(() => {
+    if (!isInitialized || !persistence.currentSession) return;
+
+    const currentActiveIds = new Set(tradingSystem.activePositions.map(p => p.position.id));
+    const previousActiveIds = new Set(positionsRef.current.map(p => p.id));
+
+    // Find positions that were closed
+    const closedPositionIds = Array.from(previousActiveIds).filter(id => !currentActiveIds.has(id));
+
+    if (closedPositionIds.length > 0) {
+      console.log(`[Position Closure] Detected ${closedPositionIds.length} closed positions`);
+      
+      closedPositionIds.forEach(positionId => {
+        if (!closedPositionsRef.current.has(positionId)) {
+          const closedPosition = positionsRef.current.find(p => p.id === positionId);
+          if (closedPosition && persistence.closePosition) {
+            const currentPrice = getCurrentPrice() || closedPosition.currentPrice;
+            const realizedPnL = closedPosition.unrealizedPnL; // Use final unrealized as realized
+            
+            console.log(`[Position Closure] Closing position ${positionId} at ${currentPrice}, PnL: ${realizedPnL.toFixed(2)}`);
+            persistence.closePosition(positionId, currentPrice, realizedPnL);
+            closedPositionsRef.current.add(positionId);
+          }
+        }
+      });
+    }
+  }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, getCurrentPrice, persistence.closePosition]);
+
   // Update existing positions with real-time prices (with optimized throttling)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession || tradingSystem.activePositions.length === 0) return;
@@ -196,6 +226,7 @@ export const useAdvancedTradingSystemWithPersistence = (
       setIsInitialized(false);
       setSessionError(null);
       initializationRef.current = false;
+      closedPositionsRef.current.clear();
       toast.success('Trading session ended');
     }
   }, [persistence.currentSession]);
