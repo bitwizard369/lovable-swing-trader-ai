@@ -141,7 +141,14 @@ export const useAdvancedTradingSystemWithPersistence = (
         const priceHistory = technicalAnalysis.current.getPriceHistory();
         if (priceHistory.length >= 20) {
           // Get raw prediction from AI model
-          const rawPrediction = aiModel.current.predict(newIndicators, newMarketContext);
+          const rawPrediction = aiModel.current.predict({
+            indicators: newIndicators,
+            marketContext: newMarketContext,
+            orderBookImbalance: (bids.length - asks.length) / (bids.length + asks.length),
+            recentPriceMovement: priceHistory.slice(-5),
+            timeOfDay: new Date().getHours(),
+            dayOfWeek: new Date().getDay()
+          });
           
           // Convert to PredictionResult format
           const convertedPrediction: PredictionResult = {
@@ -157,7 +164,7 @@ export const useAdvancedTradingSystemWithPersistence = (
           
           // Generate trading signal based on prediction
           if (convertedPrediction.confidence > 0.7) {
-            generateTradingSignal(convertedPrediction, newIndicators, currentPrice);
+            generateTradingSignal(convertedPrediction, newIndicators, currentPrice, rawPrediction);
           }
         }
       }
@@ -167,7 +174,8 @@ export const useAdvancedTradingSystemWithPersistence = (
   const generateTradingSignal = useCallback(async (
     prediction: PredictionResult, 
     indicators: AdvancedIndicators, 
-    currentPrice: number
+    currentPrice: number,
+    rawPrediction: any
   ) => {
     if (!currentSession) return;
 
@@ -185,7 +193,7 @@ export const useAdvancedTradingSystemWithPersistence = (
       setSignals(prev => [signal, ...prev.slice(0, 49)]);
       
       // Save signal to database
-      await saveSignal(signal, prediction, marketContext, indicators);
+      await saveSignal(signal, rawPrediction, marketContext, indicators);
       
       // Execute trade if conditions are met
       if (shouldExecuteTrade(signal)) {

@@ -1,4 +1,3 @@
-
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
 import { useAdvancedTradingSystemWithPersistence } from "@/hooks/useAdvancedTradingSystemWithPersistence";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
@@ -69,7 +68,13 @@ const Index = () => {
     riskScore: prediction.riskScore,
     timeHorizon: prediction.timeHorizon,
     probability: prediction.confidence, // Use confidence as probability
-    features: [], // Empty array as fallback
+    features: {
+      technical: 0.5,
+      momentum: 0.5,
+      volatility: 0.5,
+      market_structure: 0.5,
+      orderbook_depth: 0.5
+    }, // Provide proper object structure instead of empty array
     kellyFraction: 0.02, // Default Kelly fraction
     maxAdverseExcursion: 0.05 // Default MAE
   } : null;
