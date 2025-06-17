@@ -1,12 +1,15 @@
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
-import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
+import { useAdvancedTradingSystemWithPersistence } from "@/hooks/useAdvancedTradingSystemWithPersistence";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
 import { OrderBook } from "@/components/OrderBook";
 import { Portfolio } from "@/components/Portfolio";
 import { TradingSignals } from "@/components/TradingSignals";
 import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Database, Shield, Zap } from "lucide-react";
 
 const Index = () => {
   const {
@@ -28,11 +31,14 @@ const Index = () => {
     config: tradingConfig,
     updateConfig,
     getModelPerformance,
-    // Data for classic view now comes from the advanced hook
     signals,
     latestSignal,
     basicIndicators,
-  } = useAdvancedTradingSystem(
+    currentSession,
+    isRecovering,
+    isAuthenticated,
+    endSession
+  } = useAdvancedTradingSystemWithPersistence(
     'btcusdt',
     orderBook.bids,
     orderBook.asks
@@ -45,8 +51,62 @@ const Index = () => {
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-4">AI-Powered HFT Bot</h1>
-          <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System</p>
+          <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System with Supabase Persistence</p>
+          
+          {/* Session Status */}
+          <div className="flex items-center justify-center gap-4 mt-4">
+            <Badge variant={isAuthenticated ? "default" : "secondary"} className="flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              {isAuthenticated ? "Authenticated" : "Not Authenticated"}
+            </Badge>
+            
+            {currentSession && (
+              <Badge variant="default" className="flex items-center gap-2">
+                <Database className="w-4 h-4" />
+                Session: {currentSession.id.slice(0, 8)}...
+              </Badge>
+            )}
+            
+            {isRecovering && (
+              <Badge variant="outline" className="flex items-center gap-2">
+                <Zap className="w-4 h-4" />
+                Recovering Data...
+              </Badge>
+            )}
+          </div>
         </div>
+
+        {/* Session Management */}
+        {currentSession && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Session Management</CardTitle>
+              <CardDescription>
+                Active trading session with real-time data persistence
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Session ID: {currentSession.id}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Started: {new Date(currentSession.start_time).toLocaleString()}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Symbol: {currentSession.symbol.toUpperCase()}
+                  </p>
+                </div>
+                <Button 
+                  variant="destructive" 
+                  onClick={endSession}
+                  disabled={!currentSession}
+                >
+                  End Session
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs defaultValue="advanced" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
@@ -194,6 +254,9 @@ const Index = () => {
             <div className="text-center text-sm text-muted-foreground">
               Last update: {new Date(latestUpdate.E).toLocaleString()} | 
               Updates: {orderBook.bids.length} bids, {orderBook.asks.length} asks
+              {currentSession && (
+                <> | Session: {currentSession.status}</>
+              )}
             </div>
           </div>
         )}
