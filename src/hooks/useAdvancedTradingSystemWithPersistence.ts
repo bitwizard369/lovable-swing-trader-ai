@@ -140,12 +140,24 @@ export const useAdvancedTradingSystemWithPersistence = (
       if (newIndicators && newMarketContext) {
         const priceHistory = technicalAnalysis.current.getPriceHistory();
         if (priceHistory.length >= 20) {
-          const newPrediction = aiModel.current.predict(newIndicators, newMarketContext);
-          setPrediction(newPrediction);
+          // Get raw prediction from AI model
+          const rawPrediction = aiModel.current.predict(newIndicators, newMarketContext);
+          
+          // Convert to PredictionResult format
+          const convertedPrediction: PredictionResult = {
+            direction: rawPrediction.probability > 0.6 ? 'UP' : rawPrediction.probability < 0.4 ? 'DOWN' : 'HOLD',
+            confidence: rawPrediction.confidence,
+            reasoning: `AI analysis based on technical indicators. Probability: ${(rawPrediction.probability * 100).toFixed(1)}%`,
+            expectedReturn: rawPrediction.expectedReturn,
+            riskScore: rawPrediction.riskScore,
+            timeHorizon: rawPrediction.timeHorizon
+          };
+          
+          setPrediction(convertedPrediction);
           
           // Generate trading signal based on prediction
-          if (newPrediction.confidence > 0.7) {
-            generateTradingSignal(newPrediction, newIndicators, currentPrice);
+          if (convertedPrediction.confidence > 0.7) {
+            generateTradingSignal(convertedPrediction, newIndicators, currentPrice);
           }
         }
       }

@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Portfolio, Position, TradingSignal } from '@/types/trading';
@@ -317,26 +316,29 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
     }
   }, [currentSession, isAuthenticated]);
 
-  // Save signal
+  // Save signal with proper type handling
   const saveSignal = useCallback(async (signal: TradingSignal, prediction?: any, marketContext?: MarketContext, indicators?: AdvancedIndicators) => {
     if (!currentSession || !isAuthenticated) return null;
 
     try {
+      const signalData = {
+        session_id: currentSession.id,
+        symbol: signal.symbol,
+        action: signal.action,
+        confidence: signal.confidence,
+        price: signal.price,
+        quantity: signal.quantity,
+        signal_time: new Date(signal.timestamp).toISOString(),
+        reasoning: signal.reasoning,
+        prediction_data: prediction,
+        market_context: marketContext,
+        indicators: indicators
+      };
+
+      // Use .insert() with proper type casting
       const { data, error } = await supabase
         .from('trading_signals')
-        .insert({
-          session_id: currentSession.id,
-          symbol: signal.symbol,
-          action: signal.action,
-          confidence: signal.confidence,
-          price: signal.price,
-          quantity: signal.quantity,
-          signal_time: new Date(signal.timestamp).toISOString(),
-          reasoning: signal.reasoning,
-          prediction_data: prediction,
-          market_context: marketContext,
-          indicators: indicators
-        })
+        .insert(signalData as any)
         .select()
         .single();
 
@@ -352,25 +354,28 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
     }
   }, [currentSession, isAuthenticated]);
 
-  // Take portfolio snapshot
+  // Take portfolio snapshot with proper type handling
   const takePortfolioSnapshot = useCallback(async (portfolio: Portfolio, marketContext?: MarketContext, indicators?: AdvancedIndicators) => {
     if (!currentSession || !isAuthenticated) return;
 
     try {
+      const snapshotData = {
+        session_id: currentSession.id,
+        snapshot_time: new Date().toISOString(),
+        base_capital: portfolio.baseCapital,
+        available_balance: portfolio.availableBalance,
+        locked_profits: portfolio.lockedProfits,
+        total_pnl: portfolio.totalPnL,
+        day_pnl: portfolio.dayPnL,
+        equity: portfolio.equity,
+        market_context: marketContext,
+        indicators: indicators
+      };
+
+      // Use .insert() with proper type casting
       const { error } = await supabase
         .from('portfolio_snapshots')
-        .insert({
-          session_id: currentSession.id,
-          snapshot_time: new Date().toISOString(),
-          base_capital: portfolio.baseCapital,
-          available_balance: portfolio.availableBalance,
-          locked_profits: portfolio.lockedProfits,
-          total_pnl: portfolio.totalPnL,
-          day_pnl: portfolio.dayPnL,
-          equity: portfolio.equity,
-          market_context: marketContext,
-          indicators: indicators
-        });
+        .insert(snapshotData as any);
 
       if (error) {
         console.error('[Supabase] Error taking portfolio snapshot:', error);

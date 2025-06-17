@@ -1,3 +1,4 @@
+
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
 import { useAdvancedTradingSystemWithPersistence } from "@/hooks/useAdvancedTradingSystemWithPersistence";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
@@ -45,6 +46,33 @@ const Index = () => {
   );
 
   const modelPerformance = getModelPerformance();
+
+  // Transform activePositions to match Portfolio component expectations
+  const transformedActivePositions = activePositions.map(position => ({
+    position: position,
+    prediction: {
+      probability: prediction?.confidence || 0.5,
+      confidence: prediction?.confidence || 0.5,
+      expectedReturn: prediction?.expectedReturn || 0,
+      riskScore: prediction?.riskScore || 0.5,
+      timeHorizon: prediction?.timeHorizon || 1
+    },
+    entryTime: position.timestamp
+  }));
+
+  // Transform prediction to match AdvancedTradingDashboard expectations
+  const transformedPrediction = prediction ? {
+    direction: prediction.direction,
+    confidence: prediction.confidence,
+    reasoning: prediction.reasoning,
+    expectedReturn: prediction.expectedReturn,
+    riskScore: prediction.riskScore,
+    timeHorizon: prediction.timeHorizon,
+    probability: prediction.confidence, // Use confidence as probability
+    features: [], // Empty array as fallback
+    kellyFraction: 0.02, // Default Kelly fraction
+    maxAdverseExcursion: 0.05 // Default MAE
+  } : null;
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -130,7 +158,7 @@ const Index = () => {
                 
                 <Portfolio 
                   portfolio={portfolio} 
-                  activePositions={activePositions}
+                  activePositions={transformedActivePositions}
                 />
               </div>
 
@@ -139,7 +167,7 @@ const Index = () => {
                 <AdvancedTradingDashboard
                   indicators={advancedIndicators}
                   marketContext={marketContext}
-                  prediction={prediction}
+                  prediction={transformedPrediction}
                   modelPerformance={modelPerformance}
                   onConfigUpdate={updateConfig}
                 />
@@ -162,7 +190,7 @@ const Index = () => {
                 
                 <Portfolio 
                   portfolio={portfolio} 
-                  activePositions={activePositions}
+                  activePositions={transformedActivePositions}
                 />
               </div>
 
