@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAdvancedTradingSystem } from './useAdvancedTradingSystem';
 import { useTradingSessionPersistence } from './useTradingSessionPersistence';
@@ -25,7 +24,23 @@ export const useAdvancedTradingSystemWithPersistence = (
   const tradingSystem = useAdvancedTradingSystem(symbol, bids, asks);
 
   const portfolioRef = useRef<Portfolio>(tradingSystem.portfolio);
-  const positionsRef = useRef<Position[]>(tradingSystem.activePositions);
+  const positionsRef = useRef<Position[]>(tradingSystem.portfolio.positions);
+
+  // Convert PositionTracking to Position for persistence
+  const convertToPosition = useCallback((positionTracking: any): Position => {
+    return {
+      id: positionTracking.position.id,
+      symbol: positionTracking.position.symbol,
+      side: positionTracking.position.side,
+      size: positionTracking.position.size,
+      entryPrice: positionTracking.position.entryPrice,
+      currentPrice: positionTracking.position.currentPrice,
+      unrealizedPnL: positionTracking.position.unrealizedPnL,
+      realizedPnL: positionTracking.position.realizedPnL,
+      timestamp: positionTracking.position.timestamp,
+      status: positionTracking.position.status,
+    };
+  }, []);
 
   // Initialize session when user is authenticated
   useEffect(() => {
@@ -79,11 +94,12 @@ export const useAdvancedTradingSystemWithPersistence = (
     }
   }, [tradingSystem.portfolio, isInitialized, persistence.currentSession]);
 
-  // Save new positions
+  // Save new positions (convert PositionTracking to Position)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession) return;
 
-    const newPositions = tradingSystem.activePositions.filter(
+    const currentPositions = tradingSystem.activePositions.map(convertToPosition);
+    const newPositions = currentPositions.filter(
       pos => !positionsRef.current.find(oldPos => oldPos.id === pos.id)
     );
 
@@ -91,8 +107,8 @@ export const useAdvancedTradingSystemWithPersistence = (
       persistence.savePosition(position);
     });
 
-    positionsRef.current = tradingSystem.activePositions;
-  }, [tradingSystem.activePositions, isInitialized, persistence.currentSession]);
+    positionsRef.current = currentPositions;
+  }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
   // Take periodic snapshots
   useEffect(() => {
@@ -146,8 +162,7 @@ export const useAdvancedTradingSystemWithPersistence = (
     saveSignal,
     endSession,
     
-    // Override portfolio and positions with recovered data if available
+    // Override portfolio with recovered data if available, but keep activePositions as PositionTracking[]
     portfolio: persistence.recoveredData?.portfolio || tradingSystem.portfolio,
-    activePositions: persistence.recoveredData?.positions || tradingSystem.activePositions,
   };
 };
