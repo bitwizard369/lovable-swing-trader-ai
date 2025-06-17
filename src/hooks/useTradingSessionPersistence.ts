@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { tradingService, TradingSession, DatabasePosition } from '@/services/supabaseTradingService';
 import { Portfolio, Position } from '@/types/trading';
@@ -48,19 +49,19 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     return () => subscription.unsubscribe();
   }, []);
 
-  // Initialize periodic cleanup (every 15 minutes - more frequent)
+  // Initialize ultra-frequent cleanup (every 5 minutes)
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const startCleanup = () => {
       cleanupIntervalRef.current = setInterval(async () => {
         try {
-          console.log('[Session] 🧹 Running periodic cleanup...');
+          console.log('[Session] 🧹 Running ultra-frequent cleanup...');
           await tradingService.cleanupOldSessions();
         } catch (error) {
           console.error('[Session] Error during periodic cleanup:', error);
         }
-      }, 15 * 60 * 1000); // 15 minutes - more frequent
+      }, 5 * 60 * 1000); // 5 minutes - very frequent
     };
 
     startCleanup();
@@ -81,9 +82,9 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
 
     try {
       setIsRecovering(true);
-      console.log('[Session] 🚀 Initializing trading session with comprehensive recovery...');
+      console.log('[Session] 🚀 Initializing trading session with ultra-aggressive cleanup...');
 
-      // Clean up old sessions first (more aggressive)
+      // Clean up old sessions first (very aggressive)
       await tradingService.cleanupOldSessions();
 
       // Try to get existing active session
@@ -105,6 +106,16 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
             });
           } else if (recoveryData.positions.length > 0) {
             toast.success(`Session recovered with ${recoveryData.positions.length} active positions`);
+            
+            // Immediately clean up any stale positions in recovered data
+            setTimeout(async () => {
+              try {
+                await tradingService.cleanupSessionPositions(recoveryData.session.id);
+                console.log('[Session] 🧹 Immediate cleanup of recovered positions completed');
+              } catch (error) {
+                console.error('[Session] Error during immediate position cleanup:', error);
+              }
+            }, 2000);
           } else {
             toast.success('Session recovered successfully');
           }

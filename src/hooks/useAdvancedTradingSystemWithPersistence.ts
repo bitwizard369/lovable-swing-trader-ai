@@ -13,12 +13,12 @@ export const useAdvancedTradingSystemWithPersistence = (
   const [isInitialized, setIsInitialized] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   
-  // Initialize persistence with more aggressive cleanup
+  // Initialize persistence with immediate cleanup
   const persistence = useTradingSessionPersistence({
     symbol,
     autoSave: true,
-    saveInterval: 2000, // 2 seconds - more frequent
-    snapshotInterval: 30000 // 30 seconds - more frequent
+    saveInterval: 1000, // 1 second - very frequent
+    snapshotInterval: 30000 // 30 seconds
   });
 
   // Get the advanced trading system
@@ -28,6 +28,7 @@ export const useAdvancedTradingSystemWithPersistence = (
   const positionsRef = useRef<Position[]>(tradingSystem.portfolio.positions);
   const initializationRef = useRef<boolean>(false);
   const closedPositionsRef = useRef<Set<string>>(new Set());
+  const lastPositionCleanupRef = useRef<number>(Date.now());
 
   // Get current market price for real-time updates
   const getCurrentPrice = useCallback(() => {
@@ -62,6 +63,47 @@ export const useAdvancedTradingSystemWithPersistence = (
     };
   }, [getCurrentPrice]);
 
+  // AGGRESSIVE: Close positions that are older than 30 seconds immediately
+  const performImmediateCleanup = useCallback(async () => {
+    if (!persistence.currentSession || !tradingSystem.activePositions) return;
+
+    const now = Date.now();
+    const staleThreshold = 30 * 1000; // 30 seconds - very aggressive
+    
+    const stalePositions = tradingSystem.activePositions.filter(positionTracking => {
+      const positionAge = now - positionTracking.position.timestamp;
+      return positionAge > staleThreshold;
+    });
+
+    if (stalePositions.length > 0) {
+      console.log(`[Immediate Cleanup] 🧹 Closing ${stalePositions.length} stale positions (>30 seconds old)`);
+      
+      for (const stalePosition of stalePositions) {
+        const currentPrice = getCurrentPrice() || stalePosition.position.currentPrice;
+        const realizedPnL = stalePosition.position.unrealizedPnL;
+        
+        console.log(`[Immediate Cleanup] Closing stale position ${stalePosition.position.id} - Age: ${((now - stalePosition.position.timestamp) / 1000).toFixed(1)}s`);
+        
+        if (persistence.closePosition) {
+          await persistence.closePosition(stalePosition.position.id, currentPrice, realizedPnL);
+        }
+        
+        closedPositionsRef.current.add(stalePosition.position.id);
+      }
+      
+      toast.info(`Auto-closed ${stalePositions.length} stale positions`, { duration: 3000 });
+    }
+  }, [persistence.currentSession, tradingSystem.activePositions, getCurrentPrice, persistence.closePosition]);
+
+  // Run immediate cleanup every 10 seconds
+  useEffect(() => {
+    if (!isInitialized || !persistence.currentSession) return;
+
+    const cleanupInterval = setInterval(performImmediateCleanup, 10000); // Every 10 seconds
+
+    return () => clearInterval(cleanupInterval);
+  }, [isInitialized, persistence.currentSession, performImmediateCleanup]);
+
   // Initialize session when user is authenticated (only once)
   useEffect(() => {
     const initializeSession = async () => {
@@ -70,7 +112,7 @@ export const useAdvancedTradingSystemWithPersistence = (
       initializationRef.current = true;
 
       try {
-        console.log('[System] 🚀 Initializing trading session with comprehensive recovery...');
+        console.log('[System] 🚀 Initializing trading session with immediate cleanup strategy...');
         
         const session = await persistence.initializeSession(
           tradingSystem.portfolio,
@@ -89,6 +131,9 @@ export const useAdvancedTradingSystemWithPersistence = (
             } else {
               console.log('[System] 📦 Session recovered successfully');
               toast.success(`Trading session recovered! Portfolio equity: $${persistence.recoveredData.portfolio.equity.toFixed(2)}`);
+              
+              // Immediate cleanup of any recovered stale positions
+              setTimeout(performImmediateCleanup, 1000);
             }
           } else {
             console.log('[System] 🆕 New trading session created');
@@ -109,7 +154,7 @@ export const useAdvancedTradingSystemWithPersistence = (
     };
 
     initializeSession();
-  }, [persistence.isAuthenticated, isInitialized]);
+  }, [persistence.isAuthenticated, isInitialized, performImmediateCleanup]);
 
   // Auto-save portfolio state when it changes (with smart debouncing)
   useEffect(() => {
@@ -148,7 +193,7 @@ export const useAdvancedTradingSystemWithPersistence = (
     positionsRef.current = [...currentPositions];
   }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
-  // NEW: Handle position closures properly
+  // Handle position closures properly
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession) return;
 
@@ -196,10 +241,17 @@ export const useAdvancedTradingSystemWithPersistence = (
           });
         });
       }
-    }, 3000); // 3 second interval for better responsiveness
+      
+      // Also run immediate cleanup check
+      const now = Date.now();
+      if (now - lastPositionCleanupRef.current > 10000) { // Every 10 seconds
+        performImmediateCleanup();
+        lastPositionCleanupRef.current = now;
+      }
+    }, 2000); // 2 second interval for better responsiveness
 
     return () => clearInterval(updateInterval);
-  }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
+  }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition, performImmediateCleanup]);
 
   // Take periodic snapshots (less frequent)
   useEffect(() => {
