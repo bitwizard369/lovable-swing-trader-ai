@@ -9,7 +9,327 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      performance_metrics: {
+        Row: {
+          avg_loss: number
+          avg_win: number
+          calculation_time: string
+          created_at: string
+          current_drawdown: number
+          id: string
+          losing_trades: number
+          max_drawdown: number
+          model_performance: Json | null
+          profit_factor: number
+          session_id: string
+          sharpe_ratio: number | null
+          total_trades: number
+          win_rate: number
+          winning_trades: number
+        }
+        Insert: {
+          avg_loss?: number
+          avg_win?: number
+          calculation_time?: string
+          created_at?: string
+          current_drawdown?: number
+          id?: string
+          losing_trades?: number
+          max_drawdown?: number
+          model_performance?: Json | null
+          profit_factor?: number
+          session_id: string
+          sharpe_ratio?: number | null
+          total_trades?: number
+          win_rate?: number
+          winning_trades?: number
+        }
+        Update: {
+          avg_loss?: number
+          avg_win?: number
+          calculation_time?: string
+          created_at?: string
+          current_drawdown?: number
+          id?: string
+          losing_trades?: number
+          max_drawdown?: number
+          model_performance?: Json | null
+          profit_factor?: number
+          session_id?: string
+          sharpe_ratio?: number | null
+          total_trades?: number
+          win_rate?: number
+          winning_trades?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "performance_metrics_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portfolio_snapshots: {
+        Row: {
+          available_balance: number
+          base_capital: number
+          created_at: string
+          day_pnl: number
+          equity: number
+          id: string
+          indicators: Json | null
+          locked_profits: number
+          market_context: Json | null
+          open_positions_count: number
+          session_id: string
+          snapshot_time: string
+          total_pnl: number
+        }
+        Insert: {
+          available_balance: number
+          base_capital: number
+          created_at?: string
+          day_pnl: number
+          equity: number
+          id?: string
+          indicators?: Json | null
+          locked_profits: number
+          market_context?: Json | null
+          open_positions_count?: number
+          session_id: string
+          snapshot_time?: string
+          total_pnl: number
+        }
+        Update: {
+          available_balance?: number
+          base_capital?: number
+          created_at?: string
+          day_pnl?: number
+          equity?: number
+          id?: string
+          indicators?: Json | null
+          locked_profits?: number
+          market_context?: Json | null
+          open_positions_count?: number
+          session_id?: string
+          snapshot_time?: string
+          total_pnl?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_snapshots_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      positions: {
+        Row: {
+          created_at: string
+          current_price: number
+          entry_price: number
+          entry_time: string
+          exit_price: number | null
+          exit_time: string | null
+          external_id: string
+          id: string
+          max_adverse_excursion: number | null
+          max_favorable_excursion: number | null
+          partial_profits_taken: number | null
+          prediction_data: Json | null
+          realized_pnl: number
+          session_id: string
+          side: string
+          size: number
+          status: string
+          symbol: string
+          trailing_stop_price: number | null
+          unrealized_pnl: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_price: number
+          entry_price: number
+          entry_time: string
+          exit_price?: number | null
+          exit_time?: string | null
+          external_id: string
+          id?: string
+          max_adverse_excursion?: number | null
+          max_favorable_excursion?: number | null
+          partial_profits_taken?: number | null
+          prediction_data?: Json | null
+          realized_pnl?: number
+          session_id: string
+          side: string
+          size: number
+          status: string
+          symbol: string
+          trailing_stop_price?: number | null
+          unrealized_pnl?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_price?: number
+          entry_price?: number
+          entry_time?: string
+          exit_price?: number | null
+          exit_time?: string | null
+          external_id?: string
+          id?: string
+          max_adverse_excursion?: number | null
+          max_favorable_excursion?: number | null
+          partial_profits_taken?: number | null
+          prediction_data?: Json | null
+          realized_pnl?: number
+          session_id?: string
+          side?: string
+          size?: number
+          status?: string
+          symbol?: string
+          trailing_stop_price?: number | null
+          unrealized_pnl?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "positions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trading_sessions: {
+        Row: {
+          config: Json
+          created_at: string
+          current_balance: number
+          day_pnl: number
+          end_time: string | null
+          equity: number
+          id: string
+          initial_balance: number
+          locked_profits: number
+          start_time: string
+          status: string
+          symbol: string
+          total_pnl: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          config: Json
+          created_at?: string
+          current_balance: number
+          day_pnl?: number
+          end_time?: string | null
+          equity: number
+          id?: string
+          initial_balance: number
+          locked_profits?: number
+          start_time?: string
+          status?: string
+          symbol: string
+          total_pnl?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          current_balance?: number
+          day_pnl?: number
+          end_time?: string | null
+          equity?: number
+          id?: string
+          initial_balance?: number
+          locked_profits?: number
+          start_time?: string
+          status?: string
+          symbol?: string
+          total_pnl?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      trading_signals: {
+        Row: {
+          action: string
+          confidence: number
+          created_at: string
+          executed: boolean
+          id: string
+          indicators: Json | null
+          market_context: Json | null
+          position_id: string | null
+          prediction_data: Json | null
+          price: number
+          quantity: number
+          reasoning: string | null
+          session_id: string
+          signal_time: string
+          symbol: string
+        }
+        Insert: {
+          action: string
+          confidence: number
+          created_at?: string
+          executed?: boolean
+          id?: string
+          indicators?: Json | null
+          market_context?: Json | null
+          position_id?: string | null
+          prediction_data?: Json | null
+          price: number
+          quantity: number
+          reasoning?: string | null
+          session_id: string
+          signal_time?: string
+          symbol: string
+        }
+        Update: {
+          action?: string
+          confidence?: number
+          created_at?: string
+          executed?: boolean
+          id?: string
+          indicators?: Json | null
+          market_context?: Json | null
+          position_id?: string | null
+          prediction_data?: Json | null
+          price?: number
+          quantity?: number
+          reasoning?: string | null
+          session_id?: string
+          signal_time?: string
+          symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trading_signals_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trading_signals_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "trading_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
