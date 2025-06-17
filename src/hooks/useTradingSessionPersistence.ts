@@ -101,6 +101,8 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       console.log('[Session] 🆕 Creating new trading session');
       const newSession = await tradingService.createTradingSession({
         symbol: config.symbol,
+        start_time: new Date().toISOString(),
+        end_time: null,
         status: 'active',
         initial_balance: initialPortfolio.baseCapital,
         current_balance: initialPortfolio.availableBalance,
