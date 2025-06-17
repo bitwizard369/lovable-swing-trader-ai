@@ -28,12 +28,7 @@ function AppContent() {
         </Routes>
       </Router>
       {!user && <AuthModal />}
-      <Toaster 
-        position="top-right"
-        expand={false}
-        richColors
-        closeButton
-      />
+      <Toaster />
     </>
   );
 }

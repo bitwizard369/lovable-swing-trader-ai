@@ -1,15 +1,12 @@
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
-import { useAdvancedTradingSystemWithPersistence } from "@/hooks/useAdvancedTradingSystemWithPersistence";
+import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
 import { OrderBook } from "@/components/OrderBook";
 import { Portfolio } from "@/components/Portfolio";
 import { TradingSignals } from "@/components/TradingSignals";
 import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Database, Shield, Zap } from "lucide-react";
+import { useEffect } from "react";
 
 const Index = () => {
   const {
@@ -31,14 +28,11 @@ const Index = () => {
     config: tradingConfig,
     updateConfig,
     getModelPerformance,
+    // Data for classic view now comes from the advanced hook
     signals,
     latestSignal,
     basicIndicators,
-    currentSession,
-    isRecovering,
-    isAuthenticated,
-    endSession
-  } = useAdvancedTradingSystemWithPersistence(
+  } = useAdvancedTradingSystem(
     'btcusdt',
     orderBook.bids,
     orderBook.asks
@@ -46,100 +40,13 @@ const Index = () => {
 
   const modelPerformance = getModelPerformance();
 
-  // Transform activePositions to match Portfolio component expectations
-  const transformedActivePositions = activePositions.map(position => ({
-    position: position,
-    prediction: {
-      probability: prediction?.confidence || 0.5,
-      confidence: prediction?.confidence || 0.5,
-      expectedReturn: prediction?.expectedReturn || 0,
-      riskScore: prediction?.riskScore || 0.5,
-      timeHorizon: prediction?.timeHorizon || 1
-    },
-    entryTime: position.timestamp
-  }));
-
-  // Transform prediction to match AdvancedTradingDashboard expectations
-  const transformedPrediction = prediction ? {
-    direction: prediction.direction,
-    confidence: prediction.confidence,
-    reasoning: prediction.reasoning,
-    expectedReturn: prediction.expectedReturn,
-    riskScore: prediction.riskScore,
-    timeHorizon: prediction.timeHorizon,
-    probability: prediction.confidence, // Use confidence as probability
-    features: {
-      technical: 0.5,
-      momentum: 0.5,
-      volatility: 0.5,
-      market_structure: 0.5,
-      orderbook_depth: 0.5
-    }, // Provide proper object structure instead of empty array
-    kellyFraction: 0.02, // Default Kelly fraction
-    maxAdverseExcursion: 0.05 // Default MAE
-  } : null;
-
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-4">AI-Powered HFT Bot</h1>
-          <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System with Supabase Persistence</p>
-          
-          {/* Session Status */}
-          <div className="flex items-center justify-center gap-4 mt-4">
-            <Badge variant={isAuthenticated ? "default" : "secondary"} className="flex items-center gap-2">
-              <Shield className="w-4 h-4" />
-              {isAuthenticated ? "Authenticated" : "Not Authenticated"}
-            </Badge>
-            
-            {currentSession && (
-              <Badge variant="default" className="flex items-center gap-2">
-                <Database className="w-4 h-4" />
-                Session: {currentSession.id.slice(0, 8)}...
-              </Badge>
-            )}
-            
-            {isRecovering && (
-              <Badge variant="outline" className="flex items-center gap-2">
-                <Zap className="w-4 h-4" />
-                Recovering Data...
-              </Badge>
-            )}
-          </div>
+          <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System</p>
         </div>
-
-        {/* Session Management */}
-        {currentSession && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Session Management</CardTitle>
-              <CardDescription>
-                Active trading session with real-time data persistence
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Session ID: {currentSession.id}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Started: {new Date(currentSession.start_time).toLocaleString()}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Symbol: {currentSession.symbol.toUpperCase()}
-                  </p>
-                </div>
-                <Button 
-                  variant="destructive" 
-                  onClick={endSession}
-                  disabled={!currentSession}
-                >
-                  End Session
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         <Tabs defaultValue="advanced" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
@@ -163,7 +70,7 @@ const Index = () => {
                 
                 <Portfolio 
                   portfolio={portfolio} 
-                  activePositions={transformedActivePositions}
+                  activePositions={activePositions}
                 />
               </div>
 
@@ -172,7 +79,7 @@ const Index = () => {
                 <AdvancedTradingDashboard
                   indicators={advancedIndicators}
                   marketContext={marketContext}
-                  prediction={transformedPrediction}
+                  prediction={prediction}
                   modelPerformance={modelPerformance}
                   onConfigUpdate={updateConfig}
                 />
@@ -195,7 +102,7 @@ const Index = () => {
                 
                 <Portfolio 
                   portfolio={portfolio} 
-                  activePositions={transformedActivePositions}
+                  activePositions={activePositions}
                 />
               </div>
 
@@ -287,9 +194,6 @@ const Index = () => {
             <div className="text-center text-sm text-muted-foreground">
               Last update: {new Date(latestUpdate.E).toLocaleString()} | 
               Updates: {orderBook.bids.length} bids, {orderBook.asks.length} asks
-              {currentSession && (
-                <> | Session: {currentSession.status}</>
-              )}
             </div>
           </div>
         )}
