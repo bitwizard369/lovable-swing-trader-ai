@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 import { Position } from '@/types/trading';
 
@@ -377,7 +376,26 @@ class SupabaseTradingService {
     }
   }
 
-  // NEW: Session validation function
+  // NEW: Clean up current session positions
+  async cleanupSessionPositions(sessionId: string): Promise<void> {
+    try {
+      console.log(`[DB] 🧹 Cleaning up stale positions for session: ${sessionId}`);
+      
+      const { error } = await supabase.rpc('cleanup_session_positions', {
+        p_session_id: sessionId
+      });
+
+      if (error) {
+        console.error('[DB] Error cleaning up session positions:', error);
+        throw error;
+      }
+
+      console.log(`[DB] ✅ Session positions cleanup completed for: ${sessionId}`);
+    } catch (error) {
+      console.error('Error cleaning up session positions:', error);
+    }
+  }
+
   async validateSessionPositions(sessionId: string): Promise<{
     position_count: number;
     open_positions: number;
@@ -407,24 +425,6 @@ class SupabaseTradingService {
     }
   }
 
-  // NEW: Clean up old sessions
-  async cleanupOldSessions(): Promise<void> {
-    try {
-      console.log('[DB] 🧹 Cleaning up old sessions...');
-      
-      const { error } = await supabase.rpc('cleanup_old_sessions');
-
-      if (error) {
-        console.error('[DB] Error cleaning up old sessions:', error);
-        throw error;
-      }
-
-      console.log('[DB] ✅ Old sessions cleanup completed');
-    } catch (error) {
-      console.error('Error cleaning up old sessions:', error);
-    }
-  }
-
   async recoverTradingSession(sessionId: string): Promise<{
     session: TradingSession;
     positions: DatabasePosition[];
@@ -433,8 +433,14 @@ class SupabaseTradingService {
     try {
       console.log(`[DB] Recovering session: ${sessionId}`);
 
-      // Validate session positions first
-      await this.validateSessionPositions(sessionId);
+      // First, clean up any stale positions in this session
+      await this.cleanupSessionPositions(sessionId);
+
+      // Then validate and get updated position counts
+      const validation = await this.validateSessionPositions(sessionId);
+      if (validation && validation.old_open_positions > 0) {
+        console.warn(`[DB] ⚠️ Auto-cleaned ${validation.old_open_positions} stale positions`);
+      }
 
       // Get session data
       const { data: sessionData, error: sessionError } = await supabase
@@ -448,7 +454,7 @@ class SupabaseTradingService {
         throw sessionError;
       }
 
-      // Get active positions using the optimized function
+      // Get active positions using the optimized function (should be much fewer now)
       const positions = await this.getActivePositions(sessionId);
 
       // Get last snapshot
@@ -461,7 +467,7 @@ class SupabaseTradingService {
 
       const lastSnapshot = snapshotData && snapshotData.length > 0 ? snapshotData[0] : null;
 
-      console.log(`[DB] ✅ Session recovered: ${positions.length} positions, ${lastSnapshot ? 'with' : 'without'} snapshot`);
+      console.log(`[DB] ✅ Session recovered: ${positions.length} active positions, ${lastSnapshot ? 'with' : 'without'} snapshot`);
 
       return {
         session: sessionData as TradingSession,

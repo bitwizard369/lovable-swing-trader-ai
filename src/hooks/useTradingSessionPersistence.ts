@@ -92,12 +92,32 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       if (existingSession) {
         console.log(`[Session] 🔄 Recovering existing session: ${existingSession.id}`);
         
-        // Validate session before recovery
+        // Clean up stale positions in this session before recovery
+        await tradingService.cleanupSessionPositions(existingSession.id);
+        
+        // Validate session after cleanup
         const validation = await tradingService.validateSessionPositions(existingSession.id);
         if (validation) {
           if (validation.old_open_positions > 0) {
-            console.warn(`[Session] ⚠️ Found ${validation.old_open_positions} old open positions that were cleaned up`);
-            toast.warning(`Found ${validation.old_open_positions} stale positions that were cleaned up`);
+            console.warn(`[Session] ⚠️ Auto-cleaned ${validation.old_open_positions} stale positions during recovery`);
+            toast.warning(`Cleaned up ${validation.old_open_positions} stale positions from previous session`);
+          }
+          
+          if (validation.open_positions > 100) {
+            console.warn(`[Session] ⚠️ Still ${validation.open_positions} open positions after cleanup - forcing additional cleanup`);
+            // Force close all positions older than 1 minute
+            await supabase
+              .from('positions')
+              .update({
+                status: 'CLOSED',
+                exit_time: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('session_id', existingSession.id)
+              .eq('status', 'OPEN')
+              .lt('entry_time', new Date(Date.now() - 60000).toISOString()); // 1 minute ago
+              
+            toast.warning('Performed aggressive cleanup of old positions');
           }
         }
         
@@ -334,7 +354,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     savePortfolioState,
     savePosition,
     updatePosition,
-    closePosition, // NEW: Added closePosition method
+    closePosition, 
     saveSignal,
     takePortfolioSnapshot,
     endSession
