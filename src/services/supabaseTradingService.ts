@@ -376,6 +376,24 @@ class SupabaseTradingService {
     }
   }
 
+  // ADD: Missing cleanupOldSessions method
+  async cleanupOldSessions(): Promise<void> {
+    try {
+      console.log('[DB] 🧹 Running cleanup of old sessions...');
+      
+      const { error } = await supabase.rpc('cleanup_old_sessions');
+
+      if (error) {
+        console.error('[DB] Error cleaning up old sessions:', error);
+        throw error;
+      }
+
+      console.log('[DB] ✅ Old sessions cleanup completed');
+    } catch (error) {
+      console.error('Error cleaning up old sessions:', error);
+    }
+  }
+
   // NEW: Clean up current session positions
   async cleanupSessionPositions(sessionId: string): Promise<void> {
     try {
