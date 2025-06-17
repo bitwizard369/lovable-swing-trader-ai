@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAdvancedTradingSystem } from './useAdvancedTradingSystem';
 import { useTradingSessionPersistence } from './useTradingSessionPersistence';
@@ -163,10 +162,10 @@ export const useAdvancedTradingSystemWithPersistence = (
     
     tradingSystem.activePositions.forEach(positionTracking => {
       const updatedPosition = convertToPosition(positionTracking);
-      persistence.updatePosition(persistence.currentSession!.id, updatedPosition.id, {
-        current_price: updatedPosition.currentPrice,
-        unrealized_pnl: updatedPosition.unrealizedPnL,
-        updated_at: new Date().toISOString()
+      persistence.updatePosition(updatedPosition.id, {
+        currentPrice: updatedPosition.currentPrice,
+        unrealizedPnL: updatedPosition.unrealizedPnL,
+        timestamp: new Date().getTime()
       });
     });
   }, [bids, asks, tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
