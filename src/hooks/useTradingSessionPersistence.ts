@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { tradingService, TradingSession, DatabasePosition } from '@/services/supabaseTradingService';
 import { Portfolio, Position } from '@/types/trading';
@@ -19,6 +18,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
   const [recoveredData, setRecoveredData] = useState<{
     portfolio: Portfolio;
     positions: Position[];
+    wasReset?: boolean;
   } | null>(null);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
@@ -48,7 +48,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     return () => subscription.unsubscribe();
   }, []);
 
-  // Initialize periodic cleanup (every 30 minutes)
+  // Initialize periodic cleanup (every 15 minutes - more frequent)
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -60,7 +60,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
         } catch (error) {
           console.error('[Session] Error during periodic cleanup:', error);
         }
-      }, 30 * 60 * 1000); // 30 minutes
+      }, 15 * 60 * 1000); // 15 minutes - more frequent
     };
 
     startCleanup();
@@ -72,7 +72,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     };
   }, [isAuthenticated]);
 
-  // Initialize or recover session
+  // Initialize or recover session with comprehensive recovery
   const initializeSession = useCallback(async (initialPortfolio: Portfolio, tradingConfig: any) => {
     if (!isAuthenticated) {
       console.log('[Session] User not authenticated, skipping session initialization');
@@ -81,51 +81,33 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
 
     try {
       setIsRecovering(true);
-      console.log('[Session] 🚀 Initializing trading session...');
+      console.log('[Session] 🚀 Initializing trading session with comprehensive recovery...');
 
-      // Clean up old sessions first
+      // Clean up old sessions first (more aggressive)
       await tradingService.cleanupOldSessions();
 
       // Try to get existing active session
       const existingSession = await tradingService.getActiveTradingSession(config.symbol);
       
       if (existingSession) {
-        console.log(`[Session] 🔄 Recovering existing session: ${existingSession.id}`);
+        console.log(`[Session] 🔄 Found existing session: ${existingSession.id}`);
         
-        // Clean up stale positions in this session before recovery
-        await tradingService.cleanupSessionPositions(existingSession.id);
-        
-        // Validate session after cleanup
-        const validation = await tradingService.validateSessionPositions(existingSession.id);
-        if (validation) {
-          if (validation.old_open_positions > 0) {
-            console.warn(`[Session] ⚠️ Auto-cleaned ${validation.old_open_positions} stale positions during recovery`);
-            toast.warning(`Cleaned up ${validation.old_open_positions} stale positions from previous session`);
-          }
-          
-          if (validation.open_positions > 100) {
-            console.warn(`[Session] ⚠️ Still ${validation.open_positions} open positions after cleanup - forcing additional cleanup`);
-            // Force close all positions older than 1 minute
-            await supabase
-              .from('positions')
-              .update({
-                status: 'CLOSED',
-                exit_time: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              })
-              .eq('session_id', existingSession.id)
-              .eq('status', 'OPEN')
-              .lt('entry_time', new Date(Date.now() - 60000).toISOString()); // 1 minute ago
-              
-            toast.warning('Performed aggressive cleanup of old positions');
-          }
-        }
-        
-        // Recover session data
+        // Use the new comprehensive recovery method
         const recoveryData = await tradingService.recoverTradingSession(existingSession.id);
         
         if (recoveryData) {
           setCurrentSession(recoveryData.session);
+          
+          // Provide user feedback about the recovery
+          if (recoveryData.wasReset) {
+            toast.warning('Session recovered with position reset due to too many stale positions. Portfolio reset to last snapshot.', {
+              duration: 8000
+            });
+          } else if (recoveryData.positions.length > 0) {
+            toast.success(`Session recovered with ${recoveryData.positions.length} active positions`);
+          } else {
+            toast.success('Session recovered successfully');
+          }
           
           // Convert database positions back to trading system format
           const convertedPositions: Position[] = recoveryData.positions.map(dbPos => ({
@@ -141,23 +123,44 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
             status: dbPos.status
           }));
 
-          // Reconstruct portfolio from last snapshot or session data
-          const recoveredPortfolio: Portfolio = {
-            baseCapital: recoveryData.lastSnapshot?.base_capital || recoveryData.session.initial_balance,
-            availableBalance: recoveryData.lastSnapshot?.available_balance || recoveryData.session.current_balance,
-            lockedProfits: recoveryData.lastSnapshot?.locked_profits || recoveryData.session.locked_profits,
-            positions: convertedPositions,
-            totalPnL: recoveryData.lastSnapshot?.total_pnl || recoveryData.session.total_pnl,
-            dayPnL: recoveryData.lastSnapshot?.day_pnl || recoveryData.session.day_pnl,
-            equity: recoveryData.lastSnapshot?.equity || recoveryData.session.equity
-          };
+          // Reconstruct portfolio - use snapshot if available, otherwise reset
+          let recoveredPortfolio: Portfolio;
+          
+          if (recoveryData.wasReset || !recoveryData.lastSnapshot) {
+            // Reset portfolio to initial state
+            recoveredPortfolio = {
+              baseCapital: recoveryData.session.initial_balance,
+              availableBalance: recoveryData.session.initial_balance,
+              lockedProfits: 0,
+              positions: convertedPositions,
+              totalPnL: 0,
+              dayPnL: 0,
+              equity: recoveryData.session.initial_balance
+            };
+            
+            console.log('[Session] 📊 Portfolio reset to initial state due to recovery');
+          } else {
+            // Use snapshot data
+            recoveredPortfolio = {
+              baseCapital: recoveryData.lastSnapshot.base_capital,
+              availableBalance: recoveryData.lastSnapshot.available_balance,
+              lockedProfits: recoveryData.lastSnapshot.locked_profits,
+              positions: convertedPositions,
+              totalPnL: recoveryData.lastSnapshot.total_pnl,
+              dayPnL: recoveryData.lastSnapshot.day_pnl,
+              equity: recoveryData.lastSnapshot.equity
+            };
+            
+            console.log('[Session] 📊 Portfolio recovered from snapshot');
+          }
 
           setRecoveredData({
             portfolio: recoveredPortfolio,
-            positions: convertedPositions
+            positions: convertedPositions,
+            wasReset: recoveryData.wasReset
           });
 
-          console.log(`[Session] ✅ Session recovered with ${convertedPositions.length} positions, Equity: $${recoveredPortfolio.equity.toFixed(2)}`);
+          console.log(`[Session] ✅ Session recovered - ${convertedPositions.length} positions, Equity: $${recoveredPortfolio.equity.toFixed(2)}`);
           return recoveryData.session;
         }
       }
@@ -181,11 +184,13 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       if (newSession) {
         setCurrentSession(newSession);
         console.log(`[Session] ✅ New session created: ${newSession.id}`);
+        toast.success('New trading session started');
       }
 
       return newSession;
     } catch (error) {
       console.error('[Session] ❌ Error initializing session:', error);
+      toast.error('Failed to initialize trading session');
       return null;
     } finally {
       setIsRecovering(false);

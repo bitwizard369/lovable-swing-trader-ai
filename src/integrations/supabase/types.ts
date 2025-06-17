@@ -339,6 +339,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: undefined
       }
+      cleanup_session_positions: {
+        Args: { p_session_id: string }
+        Returns: undefined
+      }
       close_position: {
         Args: {
           p_session_id: string

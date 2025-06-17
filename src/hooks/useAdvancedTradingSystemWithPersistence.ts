@@ -13,12 +13,12 @@ export const useAdvancedTradingSystemWithPersistence = (
   const [isInitialized, setIsInitialized] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   
-  // Initialize persistence
+  // Initialize persistence with more aggressive cleanup
   const persistence = useTradingSessionPersistence({
     symbol,
     autoSave: true,
-    saveInterval: 3000, // 3 seconds
-    snapshotInterval: 60000 // 1 minute
+    saveInterval: 2000, // 2 seconds - more frequent
+    snapshotInterval: 30000 // 30 seconds - more frequent
   });
 
   // Get the advanced trading system
@@ -70,7 +70,7 @@ export const useAdvancedTradingSystemWithPersistence = (
       initializationRef.current = true;
 
       try {
-        console.log('[System] 🚀 Initializing trading session with persistence...');
+        console.log('[System] 🚀 Initializing trading session with comprehensive recovery...');
         
         const session = await persistence.initializeSession(
           tradingSystem.portfolio,
@@ -79,8 +79,17 @@ export const useAdvancedTradingSystemWithPersistence = (
 
         if (session) {
           if (persistence.recoveredData) {
-            console.log('[System] 📦 Session recovered successfully');
-            toast.success(`Trading session recovered! Portfolio equity: $${persistence.recoveredData.portfolio.equity.toFixed(2)}`);
+            const { wasReset } = persistence.recoveredData;
+            
+            if (wasReset) {
+              console.log('[System] 🔄 Session recovered with position reset');
+              toast.warning('Previous session had too many stale positions and was reset to prevent performance issues.', {
+                duration: 10000
+              });
+            } else {
+              console.log('[System] 📦 Session recovered successfully');
+              toast.success(`Trading session recovered! Portfolio equity: $${persistence.recoveredData.portfolio.equity.toFixed(2)}`);
+            }
           } else {
             console.log('[System] 🆕 New trading session created');
             toast.success('New trading session started');
