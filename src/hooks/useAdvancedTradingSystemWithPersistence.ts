@@ -207,15 +207,9 @@ export const useAdvancedTradingSystemWithPersistence = (
     }
   }, [persistence.currentSession]);
 
-  // Create real-time updated positions for display
-  const realTimeActivePositions = tradingSystem.activePositions.map(convertToPosition);
-
   return {
     // Trading system data
     ...tradingSystem,
-    
-    // Override activePositions with real-time price updates
-    activePositions: realTimeActivePositions,
     
     // Session persistence data
     currentSession: persistence.currentSession,
