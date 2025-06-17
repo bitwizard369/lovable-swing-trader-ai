@@ -17,8 +17,8 @@ export const useAdvancedTradingSystemWithPersistence = (
   const persistence = useTradingSessionPersistence({
     symbol,
     autoSave: true,
-    saveInterval: 5000, // 5 seconds
-    snapshotInterval: 30000 // 30 seconds
+    saveInterval: 3000, // 3 seconds
+    snapshotInterval: 60000 // 1 minute
   });
 
   // Get the advanced trading system
@@ -26,7 +26,7 @@ export const useAdvancedTradingSystemWithPersistence = (
 
   const portfolioRef = useRef<Portfolio>(tradingSystem.portfolio);
   const positionsRef = useRef<Position[]>(tradingSystem.portfolio.positions);
-  const priceUpdateCounterRef = useRef<number>(0);
+  const initializationRef = useRef<boolean>(false);
 
   // Get current market price for real-time updates
   const getCurrentPrice = useCallback(() => {
@@ -61,22 +61,12 @@ export const useAdvancedTradingSystemWithPersistence = (
     };
   }, [getCurrentPrice]);
 
-  // Debug current positions and prices with reduced frequency
-  useEffect(() => {
-    if (tradingSystem.activePositions.length > 0) {
-      priceUpdateCounterRef.current++;
-      
-      // Only log every 10th update to reduce noise
-      if (priceUpdateCounterRef.current % 10 === 0) {
-        console.log(`[Position Debug] Active positions: ${tradingSystem.activePositions.length}, Mid price: ${getCurrentPrice()?.toFixed(4)}`);
-      }
-    }
-  }, [tradingSystem.activePositions, bids, asks, getCurrentPrice]);
-
-  // Initialize session when user is authenticated
+  // Initialize session when user is authenticated (only once)
   useEffect(() => {
     const initializeSession = async () => {
-      if (!persistence.isAuthenticated || isInitialized) return;
+      if (!persistence.isAuthenticated || isInitialized || initializationRef.current) return;
+
+      initializationRef.current = true;
 
       try {
         console.log('[System] 🚀 Initializing trading session with persistence...');
@@ -88,42 +78,44 @@ export const useAdvancedTradingSystemWithPersistence = (
 
         if (session) {
           if (persistence.recoveredData) {
-            console.log('[System] 📦 Session recovered, applying recovered data...');
+            console.log('[System] 📦 Session recovered successfully');
             toast.success(`Trading session recovered! Portfolio equity: $${persistence.recoveredData.portfolio.equity.toFixed(2)}`);
           } else {
             console.log('[System] 🆕 New trading session created');
             toast.success('New trading session started');
           }
           setIsInitialized(true);
+          setSessionError(null);
         } else {
-          setSessionError('Failed to initialize trading session');
-          toast.error('Failed to initialize trading session');
+          throw new Error('Failed to initialize trading session');
         }
       } catch (error) {
         console.error('[System] ❌ Session initialization error:', error);
-        setSessionError(error instanceof Error ? error.message : 'Unknown error');
-        toast.error('Failed to initialize trading session');
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        setSessionError(errorMessage);
+        toast.error(`Failed to initialize trading session: ${errorMessage}`);
+        initializationRef.current = false;
       }
     };
 
     initializeSession();
   }, [persistence.isAuthenticated, isInitialized]);
 
-  // Auto-save portfolio state when it changes (with improved efficiency)
+  // Auto-save portfolio state when it changes (with smart debouncing)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession) return;
 
     const currentPortfolio = tradingSystem.portfolio;
     
-    // Only save if portfolio has meaningful changes (increased threshold)
-    if (
-      Math.abs(currentPortfolio.equity - portfolioRef.current.equity) > 0.1 ||
-      Math.abs(currentPortfolio.totalPnL - portfolioRef.current.totalPnL) > 0.1 ||
-      currentPortfolio.positions.length !== portfolioRef.current.positions.length
-    ) {
-      console.log(`[Portfolio Save] Equity: ${portfolioRef.current.equity.toFixed(2)} -> ${currentPortfolio.equity.toFixed(2)}, P&L: ${currentPortfolio.totalPnL.toFixed(2)}`);
+    // Only save if portfolio has meaningful changes
+    const equityDiff = Math.abs(currentPortfolio.equity - portfolioRef.current.equity);
+    const pnlDiff = Math.abs(currentPortfolio.totalPnL - portfolioRef.current.totalPnL);
+    const positionCountDiff = currentPortfolio.positions.length !== portfolioRef.current.positions.length;
+
+    if (equityDiff > 0.5 || pnlDiff > 0.5 || positionCountDiff) {
+      console.log(`[Portfolio Save] Changes detected - Equity: $${portfolioRef.current.equity.toFixed(2)} -> $${currentPortfolio.equity.toFixed(2)}`);
       persistence.savePortfolioState(currentPortfolio);
-      portfolioRef.current = currentPortfolio;
+      portfolioRef.current = { ...currentPortfolio };
     }
   }, [tradingSystem.portfolio, isInitialized, persistence.currentSession]);
 
@@ -139,36 +131,38 @@ export const useAdvancedTradingSystemWithPersistence = (
     if (newPositions.length > 0) {
       console.log(`[Position Save] Saving ${newPositions.length} new positions`);
       newPositions.forEach(position => {
-        console.log(`[Position Save] Position ${position.id}: Entry=${position.entryPrice}, Current=${position.currentPrice}, PnL=${position.unrealizedPnL.toFixed(2)}`);
         persistence.savePosition(position);
       });
     }
 
-    positionsRef.current = currentPositions;
+    positionsRef.current = [...currentPositions];
   }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
-  // Update existing positions with real-time prices (optimized with throttling)
+  // Update existing positions with real-time prices (with optimized throttling)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession || tradingSystem.activePositions.length === 0) return;
 
-    // Throttle real-time updates to every 2 seconds to reduce database load
+    // Update positions with current market prices more efficiently
     const updateInterval = setInterval(() => {
-      console.log(`[Real-time Update] Updating ${tradingSystem.activePositions.length} positions with current market price`);
-      
-      tradingSystem.activePositions.forEach(positionTracking => {
-        const updatedPosition = convertToPosition(positionTracking);
-        persistence.updatePosition(updatedPosition.id, {
-          currentPrice: updatedPosition.currentPrice,
-          unrealizedPnL: updatedPosition.unrealizedPnL,
-          timestamp: new Date().getTime()
+      const activeCount = tradingSystem.activePositions.length;
+      if (activeCount > 0) {
+        console.log(`[Real-time Update] Updating ${activeCount} positions with current market data`);
+        
+        tradingSystem.activePositions.forEach(positionTracking => {
+          const updatedPosition = convertToPosition(positionTracking);
+          persistence.updatePosition(updatedPosition.id, {
+            currentPrice: updatedPosition.currentPrice,
+            unrealizedPnL: updatedPosition.unrealizedPnL,
+            timestamp: new Date().getTime()
+          });
         });
-      });
-    }, 2000); // 2 second interval
+      }
+    }, 3000); // 3 second interval for better responsiveness
 
     return () => clearInterval(updateInterval);
   }, [tradingSystem.activePositions, isInitialized, persistence.currentSession, convertToPosition]);
 
-  // Take periodic snapshots
+  // Take periodic snapshots (less frequent)
   useEffect(() => {
     if (!isInitialized || !persistence.currentSession) return;
 
@@ -178,7 +172,7 @@ export const useAdvancedTradingSystemWithPersistence = (
         tradingSystem.marketContext,
         tradingSystem.indicators
       );
-    }, 30000); // 30 seconds
+    }, 60000); // 1 minute snapshots
 
     return () => clearInterval(snapshotInterval);
   }, [isInitialized, persistence.currentSession, tradingSystem.portfolio]);
@@ -200,6 +194,8 @@ export const useAdvancedTradingSystemWithPersistence = (
     if (persistence.currentSession) {
       await persistence.endSession();
       setIsInitialized(false);
+      setSessionError(null);
+      initializationRef.current = false;
       toast.success('Trading session ended');
     }
   }, [persistence.currentSession]);

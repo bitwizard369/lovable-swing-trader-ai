@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 import { Position } from '@/types/trading';
 
@@ -68,6 +69,8 @@ class SupabaseTradingService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      console.log('[DB] Creating new trading session for user:', user.id);
+
       const { data, error } = await supabase
         .from('trading_sessions')
         .insert({
@@ -86,12 +89,13 @@ class SupabaseTradingService {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error creating trading session:', error);
+        throw error;
+      }
 
-      return {
-        ...data,
-        status: data.status as 'active' | 'paused' | 'stopped'
-      } as TradingSession;
+      console.log('[DB] ✅ Trading session created:', data.id);
+      return data as TradingSession;
     } catch (error) {
       console.error('Error creating trading session:', error);
       return null;
@@ -109,10 +113,7 @@ class SupabaseTradingService {
 
       if (error) throw error;
 
-      return {
-        ...data,
-        status: data.status as 'active' | 'paused' | 'stopped'
-      } as TradingSession;
+      return data as TradingSession;
     } catch (error) {
       console.error('Error updating trading session:', error);
       return null;
@@ -122,7 +123,12 @@ class SupabaseTradingService {
   async getActiveTradingSession(symbol: string): Promise<TradingSession | null> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) {
+        console.log('[DB] User not authenticated');
+        return null;
+      }
+
+      console.log('[DB] Looking for active session for user:', user.id, 'symbol:', symbol);
 
       const { data, error } = await supabase
         .from('trading_sessions')
@@ -131,15 +137,22 @@ class SupabaseTradingService {
         .eq('symbol', symbol)
         .eq('status', 'active')
         .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error && error.code !== 'PGRST116') {
+        console.error('[DB] Error getting active session:', error);
+        throw error;
+      }
 
-      return data ? {
-        ...data,
-        status: data.status as 'active' | 'paused' | 'stopped'
-      } as TradingSession : null;
+      const session = data && data.length > 0 ? data[0] as TradingSession : null;
+      
+      if (session) {
+        console.log('[DB] ✅ Found active session:', session.id);
+      } else {
+        console.log('[DB] No active session found');
+      }
+
+      return session;
     } catch (error) {
       console.error('Error getting active trading session:', error);
       return null;
@@ -148,6 +161,8 @@ class SupabaseTradingService {
 
   async savePosition(sessionId: string, position: Position): Promise<DatabasePosition | null> {
     try {
+      console.log(`[DB] Saving position ${position.id} to session ${sessionId}`);
+
       const { data, error } = await supabase
         .from('positions')
         .insert({
@@ -161,20 +176,19 @@ class SupabaseTradingService {
           unrealized_pnl: position.unrealizedPnL,
           realized_pnl: position.realizedPnL,
           status: position.status,
-          entry_time: new Date(position.timestamp).toISOString()
+          entry_time: new Date(position.timestamp).toISOString(),
+          prediction_data: null
         })
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error saving position:', error);
+        throw error;
+      }
 
-      console.log(`[DB] Position saved: ${position.id} - ${position.side} ${position.symbol} @ ${position.currentPrice}`);
-
-      return {
-        ...data,
-        side: data.side as 'BUY' | 'SELL',
-        status: data.status as 'OPEN' | 'CLOSED' | 'PENDING'
-      } as DatabasePosition;
+      console.log(`[DB] ✅ Position saved: ${position.id}`);
+      return data as DatabasePosition;
     } catch (error) {
       console.error('Error saving position:', error);
       return null;
@@ -190,9 +204,15 @@ class SupabaseTradingService {
         p_unrealized_pnl: unrealizedPnL
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error updating position price/PnL:', error);
+        throw error;
+      }
 
-      console.log(`[DB] Position ${positionId} price updated: ${currentPrice}, PnL: ${unrealizedPnL.toFixed(2)}`);
+      // Only log every 5th update to reduce noise
+      if (Math.random() < 0.2) {
+        console.log(`[DB] Position ${positionId} updated: Price=${currentPrice.toFixed(4)}, PnL=${unrealizedPnL.toFixed(2)}`);
+      }
     } catch (error) {
       console.error('Error updating position price and PnL:', error);
     }
@@ -207,9 +227,12 @@ class SupabaseTradingService {
         p_realized_pnl: realizedPnL
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error closing position:', error);
+        throw error;
+      }
 
-      console.log(`[DB] Position ${positionId} closed at ${exitPrice}, realized PnL: ${realizedPnL.toFixed(2)}`);
+      console.log(`[DB] ✅ Position ${positionId} closed at ${exitPrice}, PnL: ${realizedPnL.toFixed(2)}`);
     } catch (error) {
       console.error('Error closing position:', error);
     }
@@ -223,7 +246,10 @@ class SupabaseTradingService {
         .eq('session_id', sessionId)
         .eq('external_id', positionId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error updating position:', error);
+        throw error;
+      }
     } catch (error) {
       console.error('Error updating position:', error);
     }
@@ -235,13 +261,12 @@ class SupabaseTradingService {
         p_session_id: sessionId
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error getting active positions:', error);
+        throw error;
+      }
 
-      return (data || []).map(position => ({
-        ...position,
-        side: position.side as 'BUY' | 'SELL',
-        status: position.status as 'OPEN' | 'CLOSED' | 'PENDING'
-      })) as DatabasePosition[];
+      return (data || []) as DatabasePosition[];
     } catch (error) {
       console.error('Error getting active positions:', error);
       return [];
@@ -256,13 +281,12 @@ class SupabaseTradingService {
         .eq('session_id', sessionId)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error getting positions:', error);
+        throw error;
+      }
 
-      return (data || []).map(position => ({
-        ...position,
-        side: position.side as 'BUY' | 'SELL',
-        status: position.status as 'OPEN' | 'CLOSED' | 'PENDING'
-      })) as DatabasePosition[];
+      return (data || []) as DatabasePosition[];
     } catch (error) {
       console.error('Error getting positions:', error);
       return [];
@@ -289,12 +313,12 @@ class SupabaseTradingService {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error saving signal:', error);
+        throw error;
+      }
 
-      return {
-        ...data,
-        action: data.action as 'BUY' | 'SELL' | 'HOLD'
-      } as DatabaseSignal;
+      return data as DatabaseSignal;
     } catch (error) {
       console.error('Error saving signal:', error);
       return null;
@@ -318,7 +342,12 @@ class SupabaseTradingService {
           indicators: indicators
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error saving portfolio snapshot:', error);
+        throw error;
+      }
+
+      console.log('[DB] 📸 Portfolio snapshot saved');
     } catch (error) {
       console.error('Error saving portfolio snapshot:', error);
     }
@@ -330,6 +359,8 @@ class SupabaseTradingService {
     lastSnapshot?: any;
   } | null> {
     try {
+      console.log(`[DB] Recovering session: ${sessionId}`);
+
       // Get session data
       const { data: sessionData, error: sessionError } = await supabase
         .from('trading_sessions')
@@ -337,9 +368,12 @@ class SupabaseTradingService {
         .eq('id', sessionId)
         .single();
 
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        console.error('[DB] Error recovering session:', sessionError);
+        throw sessionError;
+      }
 
-      // Get active positions using the new function
+      // Get active positions using the optimized function
       const positions = await this.getActivePositions(sessionId);
 
       // Get last snapshot
@@ -348,16 +382,16 @@ class SupabaseTradingService {
         .select()
         .eq('session_id', sessionId)
         .order('snapshot_time', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
+
+      const lastSnapshot = snapshotData && snapshotData.length > 0 ? snapshotData[0] : null;
+
+      console.log(`[DB] ✅ Session recovered: ${positions.length} positions, ${lastSnapshot ? 'with' : 'without'} snapshot`);
 
       return {
-        session: {
-          ...sessionData,
-          status: sessionData.status as 'active' | 'paused' | 'stopped'
-        } as TradingSession,
+        session: sessionData as TradingSession,
         positions,
-        lastSnapshot: snapshotData
+        lastSnapshot
       };
     } catch (error) {
       console.error('Error recovering trading session:', error);
@@ -375,7 +409,12 @@ class SupabaseTradingService {
         })
         .eq('id', sessionId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('[DB] Error ending session:', error);
+        throw error;
+      }
+
+      console.log(`[DB] ✅ Session ended: ${sessionId}`);
     } catch (error) {
       console.error('Error ending trading session:', error);
     }

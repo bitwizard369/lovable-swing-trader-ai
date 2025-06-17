@@ -63,13 +63,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "fk_metrics_session"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "trading_sessions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "performance_metrics_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
@@ -126,13 +119,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "fk_snapshots_session"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "trading_sessions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "portfolio_snapshots_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
@@ -182,7 +168,7 @@ export type Database = {
           session_id: string
           side: string
           size: number
-          status: string
+          status?: string
           symbol: string
           trailing_stop_price?: number | null
           unrealized_pnl?: number
@@ -212,13 +198,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "fk_positions_session"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "trading_sessions"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "positions_session_id_fkey"
             columns: ["session_id"]
@@ -335,13 +314,6 @@ export type Database = {
           symbol?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "fk_signals_session"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "trading_sessions"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "trading_signals_position_id_fkey"
             columns: ["position_id"]
