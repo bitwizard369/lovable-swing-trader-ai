@@ -39,7 +39,7 @@ interface DatabasePosition {
 interface PortfolioSnapshot {
   id: string;
   session_id: string;
-  timestamp: string;
+  snapshot_time: string;
   base_capital: number;
   available_balance: number;
   locked_profits: number;
@@ -107,7 +107,7 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
       }
 
       if (existingSessions && existingSessions.length > 0) {
-        const existingSession = existingSessions[0];
+        const existingSession = existingSessions[0] as TradingSession;
         console.log(`[Supabase] 🔄 Recovering existing session: ${existingSession.id}`);
         
         // Recover positions
@@ -126,7 +126,7 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
           .from('portfolio_snapshots')
           .select('*')
           .eq('session_id', existingSession.id)
-          .order('timestamp', { ascending: false })
+          .order('snapshot_time', { ascending: false })
           .limit(1);
 
         if (snapshotError) {
@@ -139,14 +139,14 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
         const convertedPositions: Position[] = (positions || []).map(dbPos => ({
           id: dbPos.external_id,
           symbol: dbPos.symbol,
-          side: dbPos.side,
+          side: dbPos.side as 'BUY' | 'SELL',
           size: dbPos.size,
           entryPrice: dbPos.entry_price,
           currentPrice: dbPos.current_price,
           unrealizedPnL: dbPos.unrealized_pnl,
           realizedPnL: dbPos.realized_pnl,
           timestamp: new Date(dbPos.entry_time).getTime(),
-          status: dbPos.status
+          status: dbPos.status as 'OPEN' | 'CLOSED' | 'PENDING'
         }));
 
         // Reconstruct portfolio from session and snapshot data
@@ -172,9 +172,17 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
 
       // Create new session
       console.log('[Supabase] 🆕 Creating new trading session');
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        console.error('[Supabase] No user found for session creation');
+        return null;
+      }
+
       const { data: newSession, error: createError } = await supabase
         .from('trading_sessions')
         .insert({
+          user_id: user.id,
           symbol: symbol,
           start_time: new Date().toISOString(),
           status: 'active',
@@ -195,11 +203,11 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
       }
 
       if (newSession) {
-        setCurrentSession(newSession);
+        setCurrentSession(newSession as TradingSession);
         console.log(`[Supabase] ✅ New session created: ${newSession.id}`);
       }
 
-      return newSession;
+      return newSession as TradingSession;
     } catch (error) {
       console.error('[Supabase] Error initializing session:', error);
       return null;
@@ -315,7 +323,7 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
 
     try {
       const { data, error } = await supabase
-        .from('signals')
+        .from('trading_signals')
         .insert({
           session_id: currentSession.id,
           symbol: signal.symbol,
@@ -323,9 +331,9 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
           confidence: signal.confidence,
           price: signal.price,
           quantity: signal.quantity,
-          timestamp: new Date(signal.timestamp).toISOString(),
+          signal_time: new Date(signal.timestamp).toISOString(),
           reasoning: signal.reasoning,
-          prediction: prediction,
+          prediction_data: prediction,
           market_context: marketContext,
           indicators: indicators
         })
@@ -353,7 +361,7 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
         .from('portfolio_snapshots')
         .insert({
           session_id: currentSession.id,
-          timestamp: new Date().toISOString(),
+          snapshot_time: new Date().toISOString(),
           base_capital: portfolio.baseCapital,
           available_balance: portfolio.availableBalance,
           locked_profits: portfolio.lockedProfits,
@@ -422,7 +430,7 @@ export const useSupabaseTradingPersistence = (symbol: string) => {
         {
           event: '*',
           schema: 'public',
-          table: 'signals',
+          table: 'trading_signals',
           filter: `session_id=eq.${currentSession.id}`,
         },
         (payload) => {
