@@ -1,19 +1,14 @@
-
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
-import { useAdvancedTradingSystemWithPersistence } from "@/hooks/useAdvancedTradingSystemWithPersistence";
+import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
 import { OrderBook } from "@/components/OrderBook";
 import { Portfolio } from "@/components/Portfolio";
 import { TradingSignals } from "@/components/TradingSignals";
 import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/AuthProvider";
-import { toast } from "sonner";
+import { useEffect } from "react";
 
 const Index = () => {
-  const { user, signOut } = useAuth();
-  
   const {
     isConnected,
     orderBook,
@@ -33,20 +28,11 @@ const Index = () => {
     config: tradingConfig,
     updateConfig,
     getModelPerformance,
-    // Data for classic view
+    // Data for classic view now comes from the advanced hook
     signals,
     latestSignal,
     basicIndicators,
-    // Session persistence
-    currentSession,
-    isRecovering,
-    isAuthenticated,
-    recoveredData,
-    isInitialized,
-    sessionError,
-    saveSignal,
-    endSession,
-  } = useAdvancedTradingSystemWithPersistence(
+  } = useAdvancedTradingSystem(
     'btcusdt',
     orderBook.bids,
     orderBook.asks
@@ -54,65 +40,12 @@ const Index = () => {
 
   const modelPerformance = getModelPerformance();
 
-  const handleSignOut = async () => {
-    try {
-      if (currentSession) {
-        await endSession();
-      }
-      await signOut();
-    } catch (error) {
-      console.error('Error signing out:', error);
-      toast.error('Error signing out');
-    }
-  };
-
-  // Show recovery state
-  if (isRecovering) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <h2 className="text-xl font-semibold">Recovering Trading Session...</h2>
-          <p className="text-muted-foreground">Restoring your portfolio and positions</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex justify-between items-center mb-8">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold mb-4">AI-Powered HFT Bot</h1>
-            <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System</p>
-            {currentSession && (
-              <p className="text-sm text-green-600 mt-2">
-                Session: {currentSession.id.slice(0, 8)}... | Status: {currentSession.status.toUpperCase()}
-              </p>
-            )}
-            {recoveredData && (
-              <p className="text-sm text-blue-600">
-                ✅ Portfolio recovered with {recoveredData.positions.length} positions
-              </p>
-            )}
-            {sessionError && (
-              <p className="text-sm text-red-600">
-                ⚠️ Session error: {sessionError}
-              </p>
-            )}
-          </div>
-          
-          {user && (
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-muted-foreground">
-                {user.email}
-              </span>
-              <Button variant="outline" onClick={handleSignOut}>
-                Sign Out
-              </Button>
-            </div>
-          )}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold mb-4">AI-Powered HFT Bot</h1>
+          <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System</p>
         </div>
 
         <Tabs defaultValue="advanced" className="w-full">
@@ -261,7 +194,6 @@ const Index = () => {
             <div className="text-center text-sm text-muted-foreground">
               Last update: {new Date(latestUpdate.E).toLocaleString()} | 
               Updates: {orderBook.bids.length} bids, {orderBook.asks.length} asks
-              {currentSession && ` | Session: ${currentSession.status}`}
             </div>
           </div>
         )}

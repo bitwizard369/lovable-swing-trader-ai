@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 import { Position } from '@/types/trading';
 
@@ -68,8 +69,6 @@ class SupabaseTradingService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      console.log('[DB] Creating new trading session for user:', user.id);
-
       const { data, error } = await supabase
         .from('trading_sessions')
         .insert({
@@ -88,13 +87,12 @@ class SupabaseTradingService {
         .select()
         .single();
 
-      if (error) {
-        console.error('[DB] Error creating trading session:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('[DB] ✅ Trading session created:', data.id);
-      return data as TradingSession;
+      return {
+        ...data,
+        status: data.status as 'active' | 'paused' | 'stopped'
+      } as TradingSession;
     } catch (error) {
       console.error('Error creating trading session:', error);
       return null;
@@ -112,7 +110,10 @@ class SupabaseTradingService {
 
       if (error) throw error;
 
-      return data as TradingSession;
+      return {
+        ...data,
+        status: data.status as 'active' | 'paused' | 'stopped'
+      } as TradingSession;
     } catch (error) {
       console.error('Error updating trading session:', error);
       return null;
@@ -122,12 +123,7 @@ class SupabaseTradingService {
   async getActiveTradingSession(symbol: string): Promise<TradingSession | null> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.log('[DB] User not authenticated');
-        return null;
-      }
-
-      console.log('[DB] Looking for active session for user:', user.id, 'symbol:', symbol);
+      if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
         .from('trading_sessions')
@@ -136,22 +132,15 @@ class SupabaseTradingService {
         .eq('symbol', symbol)
         .eq('status', 'active')
         .order('created_at', { ascending: false })
-        .limit(1);
+        .limit(1)
+        .single();
 
-      if (error && error.code !== 'PGRST116') {
-        console.error('[DB] Error getting active session:', error);
-        throw error;
-      }
+      if (error && error.code !== 'PGRST116') throw error;
 
-      const session = data && data.length > 0 ? data[0] as TradingSession : null;
-      
-      if (session) {
-        console.log('[DB] ✅ Found active session:', session.id);
-      } else {
-        console.log('[DB] No active session found');
-      }
-
-      return session;
+      return data ? {
+        ...data,
+        status: data.status as 'active' | 'paused' | 'stopped'
+      } as TradingSession : null;
     } catch (error) {
       console.error('Error getting active trading session:', error);
       return null;
@@ -160,8 +149,6 @@ class SupabaseTradingService {
 
   async savePosition(sessionId: string, position: Position): Promise<DatabasePosition | null> {
     try {
-      console.log(`[DB] Saving position ${position.id} to session ${sessionId}`);
-
       const { data, error } = await supabase
         .from('positions')
         .insert({
@@ -175,89 +162,21 @@ class SupabaseTradingService {
           unrealized_pnl: position.unrealizedPnL,
           realized_pnl: position.realizedPnL,
           status: position.status,
-          entry_time: new Date(position.timestamp).toISOString(),
-          prediction_data: null
+          entry_time: new Date(position.timestamp).toISOString()
         })
         .select()
         .single();
 
-      if (error) {
-        console.error('[DB] Error saving position:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log(`[DB] ✅ Position saved: ${position.id}`);
-      return data as DatabasePosition;
+      return {
+        ...data,
+        side: data.side as 'BUY' | 'SELL',
+        status: data.status as 'OPEN' | 'CLOSED' | 'PENDING'
+      } as DatabasePosition;
     } catch (error) {
       console.error('Error saving position:', error);
       return null;
-    }
-  }
-
-  async updatePositionPriceAndPnL(sessionId: string, positionId: string, currentPrice: number, unrealizedPnL: number): Promise<void> {
-    try {
-      const { error } = await supabase.rpc('update_position_price_and_pnl', {
-        p_session_id: sessionId,
-        p_external_id: positionId,
-        p_current_price: currentPrice,
-        p_unrealized_pnl: unrealizedPnL
-      });
-
-      if (error) {
-        console.error('[DB] Error updating position price/PnL:', error);
-        throw error;
-      }
-
-      // Only log every 5th update to reduce noise
-      if (Math.random() < 0.2) {
-        console.log(`[DB] Position ${positionId} updated: Price=${currentPrice.toFixed(4)}, PnL=${unrealizedPnL.toFixed(2)}`);
-      }
-    } catch (error) {
-      console.error('Error updating position price and PnL:', error);
-    }
-  }
-
-  // NEW: Proper position closing with complete data
-  async closePositionComplete(sessionId: string, positionId: string, exitPrice: number, realizedPnL: number): Promise<void> {
-    try {
-      console.log(`[DB] 🔴 Closing position ${positionId} at price ${exitPrice}, PnL: ${realizedPnL.toFixed(2)}`);
-      
-      const { error } = await supabase.rpc('close_position_complete', {
-        p_session_id: sessionId,
-        p_external_id: positionId,
-        p_exit_price: exitPrice,
-        p_realized_pnl: realizedPnL
-      });
-
-      if (error) {
-        console.error('[DB] Error closing position completely:', error);
-        throw error;
-      }
-
-      console.log(`[DB] ✅ Position ${positionId} closed completely at ${exitPrice}, PnL: ${realizedPnL.toFixed(2)}`);
-    } catch (error) {
-      console.error('Error closing position completely:', error);
-      throw error;
-    }
-  }
-
-  async closePosition(sessionId: string, positionId: string, exitPrice: number, realizedPnL: number): Promise<void> {
-    try {
-      const { error } = await supabase.rpc('close_position', {
-        p_session_id: sessionId,
-        p_external_id: positionId,
-        p_exit_price: exitPrice,
-        p_realized_pnl: realizedPnL
-      });
-
-      if (error) {
-        console.error('[DB] Error closing position:', error);
-        throw error;
-      }
-
-      console.log(`[DB] ✅ Position ${positionId} closed at ${exitPrice}, PnL: ${realizedPnL.toFixed(2)}`);
-    } catch (error) {
-      console.error('Error closing position:', error);
     }
   }
 
@@ -269,30 +188,9 @@ class SupabaseTradingService {
         .eq('session_id', sessionId)
         .eq('external_id', positionId);
 
-      if (error) {
-        console.error('[DB] Error updating position:', error);
-        throw error;
-      }
+      if (error) throw error;
     } catch (error) {
       console.error('Error updating position:', error);
-    }
-  }
-
-  async getActivePositions(sessionId: string): Promise<DatabasePosition[]> {
-    try {
-      const { data, error } = await supabase.rpc('get_active_positions_for_session', {
-        p_session_id: sessionId
-      });
-
-      if (error) {
-        console.error('[DB] Error getting active positions:', error);
-        throw error;
-      }
-
-      return (data || []) as DatabasePosition[];
-    } catch (error) {
-      console.error('Error getting active positions:', error);
-      return [];
     }
   }
 
@@ -304,12 +202,13 @@ class SupabaseTradingService {
         .eq('session_id', sessionId)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('[DB] Error getting positions:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      return (data || []) as DatabasePosition[];
+      return (data || []).map(position => ({
+        ...position,
+        side: position.side as 'BUY' | 'SELL',
+        status: position.status as 'OPEN' | 'CLOSED' | 'PENDING'
+      })) as DatabasePosition[];
     } catch (error) {
       console.error('Error getting positions:', error);
       return [];
@@ -336,12 +235,12 @@ class SupabaseTradingService {
         .select()
         .single();
 
-      if (error) {
-        console.error('[DB] Error saving signal:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      return data as DatabaseSignal;
+      return {
+        ...data,
+        action: data.action as 'BUY' | 'SELL' | 'HOLD'
+      } as DatabaseSignal;
     } catch (error) {
       console.error('Error saving signal:', error);
       return null;
@@ -365,157 +264,46 @@ class SupabaseTradingService {
           indicators: indicators
         });
 
-      if (error) {
-        console.error('[DB] Error saving portfolio snapshot:', error);
-        throw error;
-      }
-
-      console.log('[DB] 📸 Portfolio snapshot saved');
+      if (error) throw error;
     } catch (error) {
       console.error('Error saving portfolio snapshot:', error);
     }
   }
 
-  // ADD: Missing cleanupOldSessions method
-  async cleanupOldSessions(): Promise<void> {
-    try {
-      console.log('[DB] 🧹 Running cleanup of old sessions...');
-      
-      const { error } = await supabase.rpc('cleanup_old_sessions');
-
-      if (error) {
-        console.error('[DB] Error cleaning up old sessions:', error);
-        throw error;
-      }
-
-      console.log('[DB] ✅ Old sessions cleanup completed');
-    } catch (error) {
-      console.error('Error cleaning up old sessions:', error);
-    }
-  }
-
-  // NEW: Clean up current session positions (fixed TypeScript error)
-  async cleanupSessionPositions(sessionId: string): Promise<void> {
-    try {
-      console.log(`[DB] 🧹 Cleaning up stale positions for session: ${sessionId}`);
-      
-      // Call the database function directly since it's not in the generated types yet
-      const { error } = await supabase.rpc('cleanup_session_positions' as any, {
-        p_session_id: sessionId
-      });
-
-      if (error) {
-        console.error('[DB] Error cleaning up session positions:', error);
-        throw error;
-      }
-
-      console.log(`[DB] ✅ Session positions cleanup completed for: ${sessionId}`);
-    } catch (error) {
-      console.error('Error cleaning up session positions:', error);
-    }
-  }
-
-  async validateSessionPositions(sessionId: string): Promise<{
-    position_count: number;
-    open_positions: number;
-    old_open_positions: number;
-    validation_status: string;
-  } | null> {
-    try {
-      const { data, error } = await supabase.rpc('validate_session_positions', {
-        p_session_id: sessionId
-      });
-
-      if (error) {
-        console.error('[DB] Error validating session positions:', error);
-        throw error;
-      }
-
-      const result = data && data.length > 0 ? data[0] : null;
-      if (result) {
-        console.log(`[DB] 🔍 Session validation: ${result.position_count} total, ${result.open_positions} open, ${result.old_open_positions} old open`);
-        console.log(`[DB] 🔍 Validation status: ${result.validation_status}`);
-      }
-
-      return result;
-    } catch (error) {
-      console.error('Error validating session positions:', error);
-      return null;
-    }
-  }
-
-  // NEW: Aggressive session recovery with position reset
   async recoverTradingSession(sessionId: string): Promise<{
     session: TradingSession;
     positions: DatabasePosition[];
     lastSnapshot?: any;
-    wasReset?: boolean;
   } | null> {
     try {
-      console.log(`[DB] 🔄 Starting aggressive session recovery: ${sessionId}`);
-
-      // First, get session data
+      // Get session data
       const { data: sessionData, error: sessionError } = await supabase
         .from('trading_sessions')
         .select()
         .eq('id', sessionId)
         .single();
 
-      if (sessionError) {
-        console.error('[DB] Error recovering session:', sessionError);
-        throw sessionError;
-      }
+      if (sessionError) throw sessionError;
 
-      // Step 1: Clean up any stale positions in this session
-      await this.cleanupSessionPositions(sessionId);
+      // Get positions
+      const positions = await this.getPositions(sessionId);
 
-      // Step 2: Validate and get position counts
-      const validation = await this.validateSessionPositions(sessionId);
-      
-      // Step 3: Check if we need aggressive cleanup
-      let wasReset = false;
-      if (validation && validation.open_positions > 50) {
-        console.warn(`[DB] ⚠️ Too many positions (${validation.open_positions}), performing aggressive reset`);
-        
-        // Close ALL open positions in this session
-        const { error: resetError } = await supabase
-          .from('positions')
-          .update({
-            status: 'CLOSED',
-            exit_time: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('session_id', sessionId)
-          .eq('status', 'OPEN');
-
-        if (resetError) {
-          console.error('[DB] Error during aggressive reset:', resetError);
-        } else {
-          console.log(`[DB] ✅ Aggressive reset completed - closed all positions`);
-          wasReset = true;
-        }
-      }
-
-      // Step 4: Get remaining active positions (should be much fewer now or zero)
-      const positions = await this.getActivePositions(sessionId);
-
-      // Step 5: Get last snapshot for portfolio reconstruction
+      // Get last snapshot
       const { data: snapshotData } = await supabase
         .from('portfolio_snapshots')
         .select()
         .eq('session_id', sessionId)
         .order('snapshot_time', { ascending: false })
-        .limit(1);
-
-      const lastSnapshot = snapshotData && snapshotData.length > 0 ? snapshotData[0] : null;
-
-      console.log(`[DB] ✅ Recovery completed: ${positions.length} active positions, ${wasReset ? 'RESET' : 'normal'} recovery`);
+        .limit(1)
+        .single();
 
       return {
-        session: sessionData as TradingSession,
+        session: {
+          ...sessionData,
+          status: sessionData.status as 'active' | 'paused' | 'stopped'
+        } as TradingSession,
         positions,
-        lastSnapshot,
-        wasReset
+        lastSnapshot: snapshotData
       };
     } catch (error) {
       console.error('Error recovering trading session:', error);
@@ -525,9 +313,6 @@ class SupabaseTradingService {
 
   async endTradingSession(sessionId: string): Promise<void> {
     try {
-      // Close all open positions before ending session
-      await this.closeAllOpenPositions(sessionId);
-
       const { error } = await supabase
         .from('trading_sessions')
         .update({
@@ -536,40 +321,9 @@ class SupabaseTradingService {
         })
         .eq('id', sessionId);
 
-      if (error) {
-        console.error('[DB] Error ending session:', error);
-        throw error;
-      }
-
-      console.log(`[DB] ✅ Session ended: ${sessionId}`);
+      if (error) throw error;
     } catch (error) {
       console.error('Error ending trading session:', error);
-    }
-  }
-
-  // NEW: Close all open positions in a session
-  private async closeAllOpenPositions(sessionId: string): Promise<void> {
-    try {
-      console.log(`[DB] 🔴 Closing all open positions for session: ${sessionId}`);
-      
-      const { error } = await supabase
-        .from('positions')
-        .update({
-          status: 'CLOSED',
-          exit_time: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('session_id', sessionId)
-        .eq('status', 'OPEN');
-
-      if (error) {
-        console.error('[DB] Error closing all positions:', error);
-        throw error;
-      }
-
-      console.log(`[DB] ✅ All open positions closed for session: ${sessionId}`);
-    } catch (error) {
-      console.error('Error closing all open positions:', error);
     }
   }
 }
