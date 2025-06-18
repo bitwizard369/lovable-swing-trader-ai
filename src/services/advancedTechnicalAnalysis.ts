@@ -487,6 +487,3 @@ export const advancedTechnicalAnalysis = async (price: number, volume: number) =
     rsi: indicators.rsi_14 // Legacy support
   };
 };
-
-// Export the class with a different name to avoid conflicts
-export { TechnicalAnalysisEngine };
