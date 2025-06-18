@@ -3,13 +3,15 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, CheckCircle, RefreshCw, Settings } from 'lucide-react';
+import { AlertTriangle, CheckCircle, RefreshCw, Settings, Brain, Database } from 'lucide-react';
 import { SystemHealthCheck } from '@/services/supabaseTradingService';
 
 interface SystemHealthMonitorProps {
   healthData: SystemHealthCheck[];
   onCleanup?: () => void;
   onReset?: () => void;
+  onResetAIModel?: () => void;
+  onSyncDatabase?: () => void;
   isLoading?: boolean;
 }
 
@@ -17,6 +19,8 @@ export const SystemHealthMonitor: React.FC<SystemHealthMonitorProps> = ({
   healthData,
   onCleanup,
   onReset,
+  onResetAIModel,
+  onSyncDatabase,
   isLoading = false
 }) => {
   const getStatusColor = (status: string) => {
@@ -51,7 +55,7 @@ export const SystemHealthMonitor: React.FC<SystemHealthMonitorProps> = ({
     <Card className="w-full">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">System Health</CardTitle>
+          <CardTitle className="text-sm font-medium">System Health & AI Model</CardTitle>
           <div className="flex gap-2">
             {hasIssues && onCleanup && (
               <Button
@@ -63,6 +67,32 @@ export const SystemHealthMonitor: React.FC<SystemHealthMonitorProps> = ({
               >
                 <RefreshCw className="w-3 h-3 mr-1" />
                 Cleanup
+              </Button>
+            )}
+            {onResetAIModel && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onResetAIModel}
+                disabled={isLoading}
+                className="h-7 px-2 text-xs bg-blue-50 hover:bg-blue-100 border-blue-200"
+                title="Reset AI model state and sync with database"
+              >
+                <Brain className="w-3 h-3 mr-1" />
+                Reset AI
+              </Button>
+            )}
+            {onSyncDatabase && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onSyncDatabase}
+                disabled={isLoading}
+                className="h-7 px-2 text-xs bg-purple-50 hover:bg-purple-100 border-purple-200"
+                title="Sync AI model with database trades"
+              >
+                <Database className="w-3 h-3 mr-1" />
+                Sync DB
               </Button>
             )}
             {onReset && (
@@ -109,6 +139,15 @@ export const SystemHealthMonitor: React.FC<SystemHealthMonitorProps> = ({
                 </div>
               </div>
             ))}
+            
+            <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+              <div className="text-xs text-blue-800 font-medium mb-1">AI Model Controls</div>
+              <div className="text-xs text-blue-600">
+                • Reset AI: Clears model state and syncs with database<br/>
+                • Sync DB: Re-trains model with latest trade data<br/>
+                • Use when total trades count appears stuck
+              </div>
+            </div>
           </div>
         )}
       </CardContent>

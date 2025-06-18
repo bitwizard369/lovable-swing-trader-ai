@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
 import { TradingSignal, Position, Portfolio, TradingConfig as BaseTradingConfig } from '@/types/trading';
+import { supabase } from '@/integrations/supabase/client';
 
 const initialPortfolio: Portfolio = {
   baseCapital: 10000,
@@ -62,6 +63,7 @@ export const useAdvancedTradingSystem = (
   asks: any[]
 ) => {
   const [portfolio, setPortfolio] = useState<Portfolio>(initialPortfolio);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
   const [config, setConfig] = useState<AdvancedTradingConfig>({
     minProbability: 0.48, // Recalibrated from 0.50
@@ -104,6 +106,101 @@ export const useAdvancedTradingSystem = (
   const technicalAnalysis = useRef(new AdvancedTechnicalAnalysis());
   const aiModel = useRef(new AIPredictionModel());
   const lastSignalTime = useRef(0);
+
+  // Sync AI model with database on session initialization
+  const syncAIModelWithDatabase = useCallback(async (sessionId: string) => {
+    try {
+      console.log(`[Model Sync] 🔄 Syncing AI model with database for session: ${sessionId}`);
+      
+      // Get actual trade outcomes from database
+      const { data: positions, error } = await supabase
+        .from('positions')
+        .select('*')
+        .eq('session_id', sessionId)
+        .eq('status', 'CLOSED')
+        .order('created_at', { ascending: false })
+        .limit(100); // Get recent trades for training
+
+      if (error) {
+        console.error('[Model Sync] ❌ Error fetching positions:', error);
+        return;
+      }
+
+      if (positions && positions.length > 0) {
+        console.log(`[Model Sync] 📊 Found ${positions.length} closed positions to sync`);
+        
+        // Convert database positions to TradeOutcomes and update model
+        positions.forEach(position => {
+          if (position.prediction_data && position.realized_pnl !== null) {
+            const outcome: TradeOutcome = {
+              entryPrice: position.entry_price,
+              exitPrice: position.exit_price || position.current_price,
+              profitLoss: position.realized_pnl,
+              holdingTime: position.exit_time ? 
+                (new Date(position.exit_time).getTime() - new Date(position.entry_time).getTime()) / 1000 : 60,
+              prediction: position.prediction_data as PredictionOutput,
+              actualReturn: position.realized_pnl / (position.entry_price * position.size) * 100,
+              success: position.realized_pnl > 0,
+              maxAdverseExcursion: position.max_adverse_excursion || 0,
+              maxFavorableExcursion: position.max_favorable_excursion || 0
+            };
+            
+            aiModel.current.updateModel(outcome);
+          }
+        });
+
+        console.log(`[Model Sync] ✅ Successfully synced ${positions.length} trades with AI model`);
+      } else {
+        console.log('[Model Sync] ℹ️ No closed positions found, model starts fresh');
+      }
+
+    } catch (error) {
+      console.error('[Model Sync] ❌ Error during model sync:', error);
+    }
+  }, []);
+
+  // Reset AI model state completely
+  const resetAIModel = useCallback(() => {
+    console.log('[Model Reset] 🔄 Resetting AI model state completely');
+    aiModel.current = new AIPredictionModel();
+    
+    // If we have a current session, sync with its data
+    if (currentSessionId) {
+      syncAIModelWithDatabase(currentSessionId);
+    }
+    
+    console.log('[Model Reset] ✅ AI model reset completed');
+  }, [currentSessionId, syncAIModelWithDatabase]);
+
+  // Initialize session tracking
+  useEffect(() => {
+    const initializeSession = async () => {
+      try {
+        // Get the most recent active session
+        const { data: sessions, error } = await supabase
+          .from('trading_sessions')
+          .select('*')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (!error && sessions && sessions.length > 0) {
+          const sessionId = sessions[0].id;
+          setCurrentSessionId(sessionId);
+          console.log(`[Session Init] 📍 Found active session: ${sessionId}`);
+          
+          // Sync AI model with this session's data
+          await syncAIModelWithDatabase(sessionId);
+        } else {
+          console.log('[Session Init] ℹ️ No active session found');
+        }
+      } catch (error) {
+        console.error('[Session Init] ❌ Error initializing session:', error);
+      }
+    };
+
+    initializeSession();
+  }, [syncAIModelWithDatabase]);
 
   const canOpenPosition = useCallback((positionValue: number): boolean => {
     const openPositions = portfolio.positions.filter(p => p.status === 'OPEN').length;
@@ -332,7 +429,6 @@ export const useAdvancedTradingSystem = (
 
     let thresholds = baseConfig;
     
-    // Use dynamic thresholds from AI model if enabled
     if (baseConfig.useDynamicThresholds && dynamicThresholds) {
       thresholds = {
         ...baseConfig,
@@ -354,7 +450,6 @@ export const useAdvancedTradingSystem = (
     let confidenceAdjustment = 0;
     let riskAdjustment = 0;
 
-    // Recalibrated regime-based adjustments
     switch (marketContext.marketRegime) {
         case 'STRONG_BULL':
         case 'STRONG_BEAR':
@@ -379,7 +474,6 @@ export const useAdvancedTradingSystem = (
             break;
     }
 
-    // Enhanced liquidity-based adjustments
     const liquidityAdjustment = (marketContext.liquidityScore - 0.5) * 0.025; // Reduced from 0.03
     probabilityAdjustment += liquidityAdjustment;
     
@@ -459,7 +553,6 @@ export const useAdvancedTradingSystem = (
     const newPrediction = aiModel.current.predict(predictionInput);
     setPrediction(newPrediction);
 
-    // Get dynamic thresholds from AI model
     const dynamicThresholds = config.useDynamicThresholds ? 
       aiModel.current.getDynamicThresholds() : null;
     
@@ -514,7 +607,6 @@ export const useAdvancedTradingSystem = (
     marketContext: MarketContext,
     adaptiveThresholds: any
   ): boolean => {
-    // Check each condition individually with enhanced logging
     const probabilityCheck = prediction.probability >= dynamicConfig.minProbability;
     const confidenceCheck = prediction.confidence >= dynamicConfig.minConfidence;
     const riskCheck = prediction.riskScore <= dynamicConfig.maxRiskScore;
@@ -530,14 +622,12 @@ export const useAdvancedTradingSystem = (
 
     const basicConditions = probabilityCheck && confidenceCheck && riskCheck && positionCheck;
 
-    // Enhanced conditions with recalibrated thresholds
     const kellyCondition = !config.useKellyCriterion || 
       !adaptiveThresholds || 
       prediction.kellyFraction >= adaptiveThresholds.kellyThreshold;
     const liquidityCondition = marketContext.liquidityScore >= config.minLiquidityScore;
     const spreadCondition = marketContext.spreadQuality >= config.minSpreadQuality;
 
-    // Enhanced opportunity detection
     const opportunityCondition = !config.enableOpportunityDetection || 
       isMarketOpportunityDetected(prediction, marketContext);
 
@@ -558,7 +648,6 @@ export const useAdvancedTradingSystem = (
     prediction: PredictionOutput,
     marketContext: MarketContext
   ): boolean => {
-    // Check for strong feature confluence with lowered threshold
     if (!prediction.featureContributions) return true; // Fallback if not available
     
     const contributions = prediction.featureContributions;
@@ -840,5 +929,8 @@ export const useAdvancedTradingSystem = (
     signals,
     latestSignal: signals.length > 0 ? signals[signals.length - 1] : null,
     basicIndicators,
+    resetAIModel, // Expose the reset function
+    syncAIModelWithDatabase, // Expose the sync function
+    currentSessionId // Expose current session ID
   };
 };

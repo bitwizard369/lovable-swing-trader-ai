@@ -69,15 +69,13 @@ export class AIPredictionModel {
     profitFactor: 1.0
   };
   
-  // Recalibrated adaptive thresholds for better trade generation
   private adaptiveThresholds = {
-    minProbability: 0.48,  // Lowered from 0.50
-    minConfidence: 0.30,   // Lowered from 0.40
-    maxRiskScore: 0.80,    // Increased from 0.75
-    kellyThreshold: 0.02   // Significantly lowered from 0.05
+    minProbability: 0.48,
+    minConfidence: 0.30,
+    maxRiskScore: 0.80,
+    kellyThreshold: 0.02
   };
 
-  // Signal generation tracking
   private signalMetrics = {
     lastSignalTime: 0,
     signalDroughtCount: 0,
@@ -87,19 +85,143 @@ export class AIPredictionModel {
     consecutiveNoSignals: 0
   };
 
-  // Market opportunity detection
   private marketOpportunityState = {
     isInOpportunityWindow: false,
     opportunityStartTime: 0,
     missedOpportunities: 0,
     lastOpportunityCheck: 0
   };
+
+  // Enhanced initialization with proper state management
+  constructor() {
+    this.resetModelState();
+    console.log('[AI Model] 🎯 Enhanced AI Prediction Model initialized with improved state management');
+  }
+
+  // Reset all model state to initial values
+  resetModelState(): void {
+    console.log('[AI Model] 🔄 Resetting model state completely');
+    
+    this.trainingData = [];
+    
+    // Reset performance metrics to defaults
+    this.performanceMetrics = {
+      accuracy: 0.5,
+      precision: 0.5,
+      recall: 0.5,
+      sharpeRatio: 0,
+      maxDrawdown: 0,
+      totalTrades: 0,
+      winRate: 0.5,
+      avgMAE: 0,
+      avgMFE: 0,
+      profitFactor: 1.0
+    };
+
+    // Reset adaptive thresholds to defaults
+    this.adaptiveThresholds = {
+      minProbability: 0.48,
+      minConfidence: 0.30,
+      maxRiskScore: 0.80,
+      kellyThreshold: 0.02
+    };
+
+    // Reset signal tracking
+    this.signalMetrics = {
+      lastSignalTime: 0,
+      signalDroughtCount: 0,
+      totalSignalsGenerated: 0,
+      signalsInLastHour: 0,
+      avgTimeBetweenSignals: 0,
+      consecutiveNoSignals: 0
+    };
+
+    // Reset model weights to defaults
+    this.modelWeights = {
+      'technical': 0.30,
+      'momentum': 0.25,
+      'volatility_regime': 0.15,
+      'market_structure': 0.20,
+      'orderbook_depth': 0.10,
+    };
+
+    console.log('[AI Model] ✅ Model state reset completed');
+  }
+
+  // Enhanced bulk training data loading
+  loadTrainingData(outcomes: TradeOutcome[]): void {
+    console.log(`[AI Model] 📚 Loading ${outcomes.length} training outcomes`);
+    
+    // Clear existing data first
+    this.trainingData = [];
+    
+    // Add new outcomes with proper validation
+    outcomes.forEach(outcome => {
+      if (this.validateTradeOutcome(outcome)) {
+        this.trainingData.push(outcome);
+      }
+    });
+
+    // Keep only the most recent trades (no hard cap, but reasonable limit)
+    const maxTrainingData = 1000; // Increased from 500
+    if (this.trainingData.length > maxTrainingData) {
+      this.trainingData = this.trainingData.slice(-maxTrainingData);
+      console.log(`[AI Model] ✂️ Trimmed training data to ${maxTrainingData} most recent trades`);
+    }
+
+    // Recalculate performance metrics based on loaded data
+    this.updateEnhancedPerformanceMetrics();
+    this.adaptThresholdsBasedOnPerformance();
+    
+    // Retrain model with the loaded data
+    if (this.trainingData.length >= 10) {
+      this.retrainModelWithRegimeAwareness();
+    }
+
+    console.log(`[AI Model] ✅ Successfully loaded ${this.trainingData.length} training outcomes`);
+    console.log(`[AI Model] 📊 Updated metrics - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Total trades: ${this.performanceMetrics.totalTrades}`);
+  }
+
+  // Validate trade outcome data integrity
+  private validateTradeOutcome(outcome: TradeOutcome): boolean {
+    const required = ['entryPrice', 'exitPrice', 'profitLoss', 'holdingTime', 'prediction', 'actualReturn', 'success'];
+    const isValid = required.every(field => outcome[field as keyof TradeOutcome] !== undefined && outcome[field as keyof TradeOutcome] !== null);
+    
+    if (!isValid) {
+      console.warn('[AI Model] ⚠️ Invalid trade outcome detected, skipping');
+      return false;
+    }
+
+    // Additional validation for reasonable values
+    if (outcome.entryPrice <= 0 || outcome.exitPrice <= 0 || Math.abs(outcome.actualReturn) > 1000) {
+      console.warn('[AI Model] ⚠️ Trade outcome has unreasonable values, skipping');
+      return false;
+    }
+
+    return true;
+  }
+
+  // Enhanced method to get current model statistics
+  getModelStatistics(): any {
+    return {
+      trainingDataSize: this.trainingData.length,
+      performanceMetrics: { ...this.performanceMetrics },
+      adaptiveThresholds: { ...this.adaptiveThresholds },
+      signalMetrics: { ...this.signalMetrics },
+      modelWeights: { ...this.modelWeights },
+      recentTradesSample: this.trainingData.slice(-5).map(trade => ({
+        success: trade.success,
+        actualReturn: trade.actualReturn.toFixed(2),
+        holdingTime: trade.holdingTime.toFixed(0),
+        probability: trade.prediction.probability.toFixed(3)
+      }))
+    };
+  }
   
   predict(input: PredictionInput): PredictionOutput {
     const features = this.extractRecalibratedFeatures(input);
     const rawScore = this.calculateEnhancedRawScore(features, input.marketContext);
     
-    // Recalibrated sigmoid activation for better probability distribution
     const probability = this.recalibratedSigmoidActivation(rawScore);
     
     const confidence = this.calculateEnhancedConfidence(features, input.marketContext);
@@ -109,11 +231,10 @@ export class AIPredictionModel {
     const kellyFraction = this.calculateOptimizedKellyFraction(probability, expectedReturn);
     const maxAdverseExcursion = this.estimateMAE(input.indicators, input.marketContext);
     
-    // Enhanced feature contribution tracking
     const featureContributions = this.calculateFeatureContributions(features, input.marketContext);
     
     console.log(`[AI Model] 🎯 Recalibrated prediction - Prob: ${probability.toFixed(3)}, Raw Score: ${rawScore.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}`);
-    console.log(`[AI Model] 📊 Feature contributions - Tech: ${featureContributions.technical.toFixed(3)}, Momentum: ${featureContributions.momentum.toFixed(3)}, Market: ${featureContributions.market_structure.toFixed(3)}`);
+    console.log(`[AI Model] 📊 Training data size: ${this.trainingData.length}, Total trades tracked: ${this.performanceMetrics.totalTrades}`);
     
     this.trackSignalGeneration(probability >= this.adaptiveThresholds.minProbability);
     
@@ -137,10 +258,19 @@ export class AIPredictionModel {
   }
   
   updateModel(outcome: TradeOutcome) {
+    // Validate before adding
+    if (!this.validateTradeOutcome(outcome)) {
+      console.warn('[AI Model] ⚠️ Skipping invalid trade outcome');
+      return;
+    }
+
     this.trainingData.push(outcome);
     
-    if (this.trainingData.length > 500) {
-      this.trainingData = this.trainingData.slice(-500);
+    // Use dynamic limit instead of hard cap
+    const maxTrainingData = 1000; // Increased from 500
+    if (this.trainingData.length > maxTrainingData) {
+      this.trainingData = this.trainingData.slice(-maxTrainingData);
+      console.log(`[AI Model] ✂️ Training data trimmed to ${maxTrainingData} most recent trades`);
     }
     
     this.updateEnhancedPerformanceMetrics();
@@ -151,22 +281,23 @@ export class AIPredictionModel {
       this.retrainModelWithRegimeAwareness();
     }
     
-    // Update Kelly Criterion threshold based on recent performance
     this.updateOptimizedKellyThreshold();
-    
-    // Track actual vs predicted performance
     this.trackPredictionAccuracy(outcome);
+
+    console.log(`[AI Model] 🎓 Model updated - Total training samples: ${this.trainingData.length}, Win rate: ${this.performanceMetrics.winRate.toFixed(3)}`);
   }
   
   getModelPerformance() {
     return {
       ...this.performanceMetrics,
       totalSamples: this.trainingData.length,
+      actualTrainingDataSize: this.trainingData.length, // Add actual size for debugging
       lastUpdated: new Date().toISOString(),
       adaptiveThresholds: this.adaptiveThresholds,
       signalMetrics: this.signalMetrics,
       marketOpportunityState: this.marketOpportunityState,
-      recentTrades: this.trainingData.slice(-10)
+      recentTrades: this.trainingData.slice(-10),
+      modelStatistics: this.getModelStatistics()
     };
   }
   
@@ -184,7 +315,6 @@ export class AIPredictionModel {
       this.signalMetrics.signalDroughtCount++;
       console.log(`[AI Model] ⚠️ Signal drought detected: ${(timeSinceLastSignal / 1000).toFixed(0)}s since last signal`);
       
-      // Progressive threshold reduction during drought
       const droughtMultiplier = Math.max(0.7, 1 - (this.signalMetrics.signalDroughtCount * 0.05));
       return droughtMultiplier < 0.9;
     }
@@ -665,8 +795,6 @@ export class AIPredictionModel {
     return Math.max(0.05, Math.min(0.80, risk)); // Adjusted range
   }
 
-  // ... keep existing code (helper methods like estimateExpectedReturn, adaptThresholdsBasedOnPerformance, etc.) the same ...
-
   private estimateExpectedReturn(probability: number, confidence: number, indicators: AdvancedIndicators, marketContext: MarketContext): number {
     if (indicators.bollinger_middle <= 0) {
         return 0.1;
@@ -735,13 +863,18 @@ export class AIPredictionModel {
   }
 
   private updateEnhancedPerformanceMetrics() {
-    if (this.trainingData.length === 0) return;
+    if (this.trainingData.length === 0) {
+      // Reset to defaults when no data
+      this.performanceMetrics.totalTrades = 0;
+      this.performanceMetrics.winRate = 0.5;
+      return;
+    }
     
     const recentTrades = this.trainingData.slice(-50);
     const successfulTrades = recentTrades.filter(t => t.success);
     
     this.performanceMetrics.winRate = successfulTrades.length / recentTrades.length;
-    this.performanceMetrics.totalTrades = this.trainingData.length;
+    this.performanceMetrics.totalTrades = this.trainingData.length; // Use actual training data length
     
     const returns = recentTrades.map(t => t.actualReturn);
     const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
@@ -755,7 +888,7 @@ export class AIPredictionModel {
     const grossLoss = recentTrades.filter(t => !t.success).reduce((sum, t) => sum + Math.abs(t.actualReturn), 0);
     this.performanceMetrics.profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 1.0;
     
-    console.log(`[AI Model] 📊 Performance metrics - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Profit factor: ${this.performanceMetrics.profitFactor.toFixed(2)}, Avg MAE: ${this.performanceMetrics.avgMAE.toFixed(3)}%`);
+    console.log(`[AI Model] 📊 Performance metrics updated - Win rate: ${this.performanceMetrics.winRate.toFixed(3)}, Total trades: ${this.performanceMetrics.totalTrades}, Profit factor: ${this.performanceMetrics.profitFactor.toFixed(2)}`);
   }
 
   private adaptThresholdsBasedOnPerformance() {
