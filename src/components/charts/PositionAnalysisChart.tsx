@@ -42,13 +42,14 @@ export const PositionAnalysisChart = ({ positions }: PositionAnalysisChartProps)
     size: data.totalSize,
   }));
 
-  // P&L distribution data
+  // P&L distribution data with color information
   const pnlData = positions.map((pos, index) => ({
     id: pos.id.substring(0, 8),
     symbol: pos.symbol.toUpperCase(),
     pnl: pos.unrealizedPnL,
     confidence: pos.prediction?.confidence || 0,
     risk: pos.prediction?.riskScore || 0,
+    fill: pos.unrealizedPnL >= 0 ? '#10b981' : '#ef4444', // Green for profit, red for loss
   }));
 
   const formatCurrency = (value: number) => `$${value.toFixed(2)}`;
@@ -155,7 +156,6 @@ export const PositionAnalysisChart = ({ positions }: PositionAnalysisChartProps)
               />
               <Bar
                 dataKey="pnl"
-                fill={(entry) => entry >= 0 ? '#10b981' : '#ef4444'}
                 radius={[2, 2, 0, 0]}
               />
             </BarChart>
