@@ -69,7 +69,9 @@ export const MarketContextChart = ({ marketContext, indicators }: MarketContextC
     },
   ];
 
-  const getVolatilityColor = (regime: string) => {
+  const getVolatilityColor = (regime: string | undefined) => {
+    if (!regime) return 'bg-gray-100 text-gray-800 border-gray-200';
+    
     switch (regime) {
       case 'LOW': return 'bg-green-100 text-green-800 border-green-200';
       case 'MEDIUM': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
@@ -78,7 +80,9 @@ export const MarketContextChart = ({ marketContext, indicators }: MarketContextC
     }
   };
 
-  const getMarketRegimeColor = (regime: string) => {
+  const getMarketRegimeColor = (regime: string | undefined) => {
+    if (!regime) return 'bg-gray-100 text-gray-800 border-gray-200';
+    
     if (regime.includes('BULL')) return 'bg-green-100 text-green-800 border-green-200';
     if (regime.includes('BEAR')) return 'bg-red-100 text-red-800 border-red-200';
     return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -97,22 +101,22 @@ export const MarketContextChart = ({ marketContext, indicators }: MarketContextC
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-1">Volatility</p>
             <Badge className={getVolatilityColor(marketContext.volatilityRegime)}>
-              {marketContext.volatilityRegime}
+              {marketContext.volatilityRegime || 'UNKNOWN'}
             </Badge>
           </div>
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-1">Market Regime</p>
             <Badge className={getMarketRegimeColor(marketContext.marketRegime)}>
-              {marketContext.marketRegime.replace(/_/g, ' ')}
+              {marketContext.marketRegime ? marketContext.marketRegime.replace(/_/g, ' ') : 'UNKNOWN'}
             </Badge>
           </div>
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-1">Market Hour</p>
-            <Badge variant="outline">{marketContext.marketHour}</Badge>
+            <Badge variant="outline">{marketContext.marketHour || 'UNKNOWN'}</Badge>
           </div>
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-1">News Impact</p>
-            <Badge variant="secondary">{marketContext.newsImpact}</Badge>
+            <Badge variant="secondary">{marketContext.newsImpact || 'UNKNOWN'}</Badge>
           </div>
         </div>
 
