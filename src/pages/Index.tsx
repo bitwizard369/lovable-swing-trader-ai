@@ -1,3 +1,4 @@
+
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
 import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
@@ -5,7 +6,9 @@ import { OrderBook } from "@/components/OrderBook";
 import { Portfolio } from "@/components/Portfolio";
 import { TradingSignals } from "@/components/TradingSignals";
 import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
+import { SystemHealthMonitor } from "@/components/SystemHealthMonitor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useTradingSessionPersistence } from "@/hooks/useTradingSessionPersistence";
 import { useEffect } from "react";
 
 const Index = () => {
@@ -38,6 +41,20 @@ const Index = () => {
     orderBook.asks
   );
 
+  // Enhanced session persistence with health monitoring
+  const {
+    systemHealth,
+    cleanupSession,
+    resetSession,
+    isRecovering
+  } = useTradingSessionPersistence({
+    symbol: 'btcusdt',
+    autoSave: true,
+    saveInterval: 5000,
+    snapshotInterval: 30000,
+    healthCheckInterval: 60000 // Check health every minute
+  });
+
   const modelPerformance = getModelPerformance();
 
   return (
@@ -49,10 +66,11 @@ const Index = () => {
         </div>
 
         <Tabs defaultValue="advanced" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="advanced">AI Trading</TabsTrigger>
             <TabsTrigger value="classic">Classic View</TabsTrigger>
             <TabsTrigger value="analysis">Technical Analysis</TabsTrigger>
+            <TabsTrigger value="system">System Health</TabsTrigger>
           </TabsList>
 
           <TabsContent value="advanced" className="space-y-6">
@@ -186,6 +204,47 @@ const Index = () => {
                 </div>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="system" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SystemHealthMonitor
+                healthData={systemHealth}
+                onCleanup={cleanupSession}
+                onReset={resetSession}
+                isLoading={isRecovering}
+              />
+              
+              <div className="space-y-4">
+                <div className="p-4 border rounded-lg">
+                  <h3 className="text-sm font-medium mb-2">System Status</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span>WebSocket:</span>
+                      <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
+                        {isConnected ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>API Health:</span>
+                      <span className={apiHealthy ? 'text-green-600' : 'text-red-600'}>
+                        {apiHealthy ? 'Healthy' : 'Unhealthy'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Active Positions:</span>
+                      <span>{activePositions.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Recovery Mode:</span>
+                      <span className={isRecovering ? 'text-yellow-600' : 'text-green-600'}>
+                        {isRecovering ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
 

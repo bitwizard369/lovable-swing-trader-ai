@@ -1,20 +1,23 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { tradingService, TradingSession, DatabasePosition } from '@/services/supabaseTradingService';
+import { tradingService, TradingSession, DatabasePosition, SystemHealthCheck } from '@/services/supabaseTradingService';
 import { Portfolio, Position } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
 
 interface SessionPersistenceConfig {
   symbol: string;
   autoSave: boolean;
   saveInterval: number; // milliseconds
   snapshotInterval: number; // milliseconds
+  healthCheckInterval?: number; // milliseconds
 }
 
 export const useTradingSessionPersistence = (config: SessionPersistenceConfig) => {
+  const { toast } = useToast();
   const [currentSession, setCurrentSession] = useState<TradingSession | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthCheck[]>([]);
   const [recoveredData, setRecoveredData] = useState<{
     portfolio: Portfolio;
     positions: Position[];
@@ -22,6 +25,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
 
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
   const snapshotTimeoutRef = useRef<NodeJS.Timeout>();
+  const healthCheckIntervalRef = useRef<NodeJS.Timeout>();
   const lastSaveDataRef = useRef<string>('');
 
   // Check authentication status
@@ -40,6 +44,49 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     return () => subscription.unsubscribe();
   }, []);
 
+  // System health monitoring
+  useEffect(() => {
+    if (!isAuthenticated || !config.healthCheckInterval) return;
+
+    const checkSystemHealth = async () => {
+      try {
+        const health = await tradingService.getSystemHealth();
+        setSystemHealth(health);
+
+        // Show warnings for unhealthy metrics
+        health.forEach(metric => {
+          if (metric.status === 'WARNING') {
+            toast({
+              title: `System Warning: ${metric.metric}`,
+              description: `Current value: ${metric.value}`,
+              variant: 'destructive'
+            });
+          } else if (metric.status === 'CLEANUP_NEEDED') {
+            toast({
+              title: 'Cleanup Required',
+              description: `Found ${metric.value} stale positions. Auto-cleanup initiated.`,
+              variant: 'destructive'
+            });
+          }
+        });
+      } catch (error) {
+        console.error('[Health] Error checking system health:', error);
+      }
+    };
+
+    // Initial health check
+    checkSystemHealth();
+
+    // Set up interval
+    healthCheckIntervalRef.current = setInterval(checkSystemHealth, config.healthCheckInterval);
+
+    return () => {
+      if (healthCheckIntervalRef.current) {
+        clearInterval(healthCheckIntervalRef.current);
+      }
+    };
+  }, [isAuthenticated, config.healthCheckInterval, toast]);
+
   // Initialize or recover session
   const initializeSession = useCallback(async (initialPortfolio: Portfolio, tradingConfig: any) => {
     if (!isAuthenticated) {
@@ -55,6 +102,20 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       
       if (existingSession) {
         console.log(`[Session] 🔄 Recovering existing session: ${existingSession.id}`);
+        
+        // Validate and cleanup positions
+        const validation = await tradingService.validateSessionPositions(existingSession.id);
+        if (validation) {
+          console.log(`[Session] 📊 Position validation:`, validation);
+          
+          if (validation.validation_status.includes('CLEANED')) {
+            toast({
+              title: 'Session Cleaned',
+              description: validation.validation_status,
+              variant: 'default'
+            });
+          }
+        }
         
         // Recover session data
         const recoveryData = await tradingService.recoverTradingSession(existingSession.id);
@@ -92,6 +153,12 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
             positions: convertedPositions
           });
 
+          toast({
+            title: 'Session Recovered',
+            description: `Recovered ${convertedPositions.length} positions. Equity: $${recoveredPortfolio.equity.toFixed(2)}`,
+            variant: 'default'
+          });
+
           console.log(`[Session] ✅ Session recovered with ${convertedPositions.length} positions, Equity: ${recoveredPortfolio.equity.toFixed(2)}`);
           return recoveryData.session;
         }
@@ -115,19 +182,29 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
 
       if (newSession) {
         setCurrentSession(newSession);
+        toast({
+          title: 'New Session Started',
+          description: `Trading session created for ${config.symbol.toUpperCase()}`,
+          variant: 'default'
+        });
         console.log(`[Session] ✅ New session created: ${newSession.id}`);
       }
 
       return newSession;
     } catch (error) {
       console.error('[Session] Error initializing session:', error);
+      toast({
+        title: 'Session Error',
+        description: 'Failed to initialize trading session',
+        variant: 'destructive'
+      });
       return null;
     } finally {
       setIsRecovering(false);
     }
-  }, [config.symbol, isAuthenticated]);
+  }, [config.symbol, isAuthenticated, toast]);
 
-  // Save portfolio state
+  // Save portfolio state with enhanced validation
   const savePortfolioState = useCallback(async (portfolio: Portfolio) => {
     if (!currentSession || !isAuthenticated) return;
 
@@ -165,7 +242,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }, 1000); // 1 second debounce
   }, [currentSession, isAuthenticated]);
 
-  // Save position
+  // Save position with enhanced lifecycle management
   const savePosition = useCallback(async (position: Position) => {
     if (!currentSession || !isAuthenticated) return;
 
@@ -174,8 +251,13 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       console.log(`[Session] 📍 Position saved: ${position.side} ${position.symbol}`);
     } catch (error) {
       console.error('[Session] Error saving position:', error);
+      toast({
+        title: 'Position Save Error',
+        description: `Failed to save ${position.side} position`,
+        variant: 'destructive'
+      });
     }
-  }, [currentSession, isAuthenticated]);
+  }, [currentSession, isAuthenticated, toast]);
 
   // Update position
   const updatePosition = useCallback(async (positionId: string, updates: Partial<Position>) => {
@@ -193,6 +275,59 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       console.error('[Session] Error updating position:', error);
     }
   }, [currentSession, isAuthenticated]);
+
+  // Close position
+  const closePosition = useCallback(async (positionId: string, exitPrice: number, realizedPnL: number) => {
+    if (!currentSession || !isAuthenticated) return;
+
+    try {
+      await tradingService.closePosition(currentSession.id, positionId, exitPrice, realizedPnL);
+      toast({
+        title: 'Position Closed',
+        description: `PnL: ${realizedPnL >= 0 ? '+' : ''}$${realizedPnL.toFixed(2)}`,
+        variant: realizedPnL >= 0 ? 'default' : 'destructive'
+      });
+    } catch (error) {
+      console.error('[Session] Error closing position:', error);
+      toast({
+        title: 'Position Close Error',
+        description: 'Failed to close position',
+        variant: 'destructive'
+      });
+    }
+  }, [currentSession, isAuthenticated, toast]);
+
+  // Manual cleanup functions
+  const cleanupSession = useCallback(async () => {
+    if (!currentSession) return;
+
+    try {
+      await tradingService.cleanupSessionPositions(currentSession.id);
+      toast({
+        title: 'Session Cleaned',
+        description: 'Stale positions have been cleaned up',
+        variant: 'default'
+      });
+    } catch (error) {
+      console.error('[Session] Error cleaning up session:', error);
+    }
+  }, [currentSession, toast]);
+
+  const resetSession = useCallback(async () => {
+    if (!currentSession) return;
+
+    try {
+      await tradingService.resetSession(currentSession.id);
+      setRecoveredData(null);
+      toast({
+        title: 'Session Reset',
+        description: 'All positions closed and balances reset',
+        variant: 'default'
+      });
+    } catch (error) {
+      console.error('[Session] Error resetting session:', error);
+    }
+  }, [currentSession, toast]);
 
   // Save signal
   const saveSignal = useCallback(async (signal: any, prediction?: any, marketContext?: any, indicators?: any) => {
@@ -243,23 +378,32 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
       await tradingService.endTradingSession(currentSession.id);
       setCurrentSession(null);
       setRecoveredData(null);
+      toast({
+        title: 'Session Ended',
+        description: 'Trading session has been stopped',
+        variant: 'default'
+      });
       console.log(`[Session] 🛑 Session ended: ${currentSession.id}`);
     } catch (error) {
       console.error('[Session] Error ending session:', error);
     }
-  }, [currentSession]);
+  }, [currentSession, toast]);
 
   return {
     currentSession,
     isRecovering,
     isAuthenticated,
     recoveredData,
+    systemHealth,
     initializeSession,
     savePortfolioState,
     savePosition,
     updatePosition,
+    closePosition,
     saveSignal,
     takePortfolioSnapshot,
+    cleanupSession,
+    resetSession,
     endSession
   };
 };
