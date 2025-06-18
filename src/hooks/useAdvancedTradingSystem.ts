@@ -102,8 +102,8 @@ export const useAdvancedTradingSystem = (
     maxPositionsPerSymbol: 100,
     maxPositionSize: 1500,
     maxDailyLoss: 600,
-    stopLossPercentage: 1.2,
-    takeProfitPercentage: 2.5,
+    stopLossPercentage: 0.5, // Increased from 1.2% to 0.5% (more reasonable)
+    takeProfitPercentage: 1.5, // Increased from 2.5% to 1.5%
     maxOpenPositions: 100,
     riskPerTrade: 100,
     enableProfitLock: true,
@@ -112,7 +112,7 @@ export const useAdvancedTradingSystem = (
     useKellyCriterion: true,
     maxKellyFraction: 0.20,
     enableTrailingStop: true,
-    trailingStopATRMultiplier: 2.0,
+    trailingStopATRMultiplier: 3.0, // Increased from 2.0 to 3.0 for wider trailing stops
     enablePartialProfits: true,
     partialProfitLevels: [0.8, 1.5, 2.2],
     debugMode: true,
@@ -178,9 +178,9 @@ export const useAdvancedTradingSystem = (
       enableTrailingStops: config.enableTrailingStop,
       trailingStopATRMultiplier: config.trailingStopATRMultiplier,
       enableTakeProfit: true,
-      takeProfitMultiplier: config.takeProfitPercentage / 100,
+      takeProfitMultiplier: config.takeProfitPercentage,
       enableStopLoss: true,
-      stopLossMultiplier: config.stopLossPercentage / 100,
+      stopLossMultiplier: config.stopLossPercentage,
       enablePartialProfits: config.enablePartialProfits,
       partialProfitLevels: config.partialProfitLevels
     };
@@ -188,7 +188,7 @@ export const useAdvancedTradingSystem = (
     autoTradingEngine.current = new AutoTradingEngine(autoConfig);
     positionManager.current = new PositionManager(positionConfig);
 
-    console.log('[Trading System] ⚙️ Auto trading and position manager updated');
+    console.log('[Trading System] ⚙️ Auto trading and position manager updated with improved stop loss settings');
   }, [config, isInitialized]);
 
   // Portfolio Management Functions
@@ -678,6 +678,26 @@ export const useAdvancedTradingSystem = (
 
     const currentPrice = (bids[0].price + asks[0].price) / 2;
     
+    // Update all open positions with current price and calculate unrealized P&L
+    setPortfolio(prev => ({
+      ...prev,
+      positions: prev.positions.map(p => {
+        if (p.status === 'OPEN') {
+          const pnlMultiplier = p.side === 'BUY' ? 1 : -1;
+          const unrealizedPnL = (currentPrice - p.entryPrice) * p.size * pnlMultiplier;
+          
+          console.log(`[Portfolio] 💹 Updating position ${p.id} - Entry: ${p.entryPrice.toFixed(2)}, Current: ${currentPrice.toFixed(2)}, P&L: ${unrealizedPnL.toFixed(2)}`);
+          
+          return {
+            ...p,
+            currentPrice,
+            unrealizedPnL
+          };
+        }
+        return p;
+      })
+    }));
+    
     // Check each managed position for exit conditions
     activePositions.forEach((posTracking, positionId) => {
       const exitCheck = positionManager.current!.updatePosition(positionId, currentPrice, indicators);
@@ -690,7 +710,7 @@ export const useAdvancedTradingSystem = (
         }
       }
     });
-  }, [bids, asks, activePositions, indicators, handlePartialExit, exitPosition]);
+  }, [bids, asks, activePositions, indicators]);
 
   // Create a simple executeSignalManually function that matches the expected signature
   const executeSignalManually = useCallback((signal: TradingSignal) => {
