@@ -1,4 +1,3 @@
-
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
 import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { WebSocketStatus } from "@/components/WebSocketStatus";
@@ -6,6 +5,7 @@ import { OrderBook } from "@/components/OrderBook";
 import { Portfolio } from "@/components/Portfolio";
 import { TradingSignals } from "@/components/TradingSignals";
 import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
+import { AutoTradingControls } from "@/components/AutoTradingControls";
 import { SystemHealthMonitor } from "@/components/SystemHealthMonitor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTradingSessionPersistence } from "@/hooks/useTradingSessionPersistence";
@@ -35,6 +35,9 @@ const Index = () => {
     signals,
     latestSignal,
     basicIndicators,
+    autoTradingStatus,
+    managedPositions,
+    executeSignalManually
   } = useAdvancedTradingSystem(
     'btcusdt',
     orderBook.bids,
@@ -57,6 +60,24 @@ const Index = () => {
 
   const modelPerformance = getModelPerformance();
 
+  // Auto trading control handlers
+  const handleToggleAutoTrading = (enabled: boolean) => {
+    updateConfig({ autoTradingEnabled: enabled });
+  };
+
+  const handleToggleDryRun = (dryRun: boolean) => {
+    updateConfig({ autoTradingDryRun: dryRun });
+  };
+
+  const handleResetEmergencyStop = () => {
+    // This would need to be implemented in the hook
+    console.log('Reset emergency stop requested');
+  };
+
+  const handleOpenSettings = () => {
+    console.log('Open auto trading settings');
+  };
+
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -66,8 +87,9 @@ const Index = () => {
         </div>
 
         <Tabs defaultValue="advanced" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="advanced">AI Trading</TabsTrigger>
+            <TabsTrigger value="controls">Auto Trading</TabsTrigger>
             <TabsTrigger value="classic">Classic View</TabsTrigger>
             <TabsTrigger value="analysis">Technical Analysis</TabsTrigger>
             <TabsTrigger value="system">System Health</TabsTrigger>
@@ -88,7 +110,11 @@ const Index = () => {
                 
                 <Portfolio 
                   portfolio={portfolio} 
-                  activePositions={activePositions}
+                  activePositions={managedPositions.map(mp => ({
+                    position: mp.position,
+                    prediction: mp.prediction,
+                    entryTime: mp.entryTime
+                  }))}
                 />
               </div>
 
@@ -100,6 +126,28 @@ const Index = () => {
                   prediction={prediction}
                   modelPerformance={modelPerformance}
                   onConfigUpdate={updateConfig}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="controls" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <AutoTradingControls
+                  status={autoTradingStatus}
+                  onToggleEnabled={handleToggleAutoTrading}
+                  onToggleDryRun={handleToggleDryRun}
+                  onResetEmergencyStop={handleResetEmergencyStop}
+                  onOpenSettings={handleOpenSettings}
+                />
+              </div>
+              
+              <div className="lg:col-span-2">
+                <TradingSignals
+                  signals={signals}
+                  latestSignal={latestSignal}
+                  onExecuteSignal={executeSignalManually}
                 />
               </div>
             </div>
