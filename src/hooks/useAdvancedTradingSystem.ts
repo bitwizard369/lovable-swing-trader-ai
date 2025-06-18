@@ -41,7 +41,6 @@ interface AdvancedTradingConfig extends BaseTradingConfig {
   useAdaptiveThresholds: boolean;
   enableProfitLock: boolean;
   profitLockPercentage: number;
-  minProfitLockThreshold?: number;
   useKellyCriterion: boolean;
   maxKellyFraction: number;
   enableTrailingStop: boolean;
@@ -56,10 +55,10 @@ interface AdvancedTradingConfig extends BaseTradingConfig {
   autoTradingEnabled: boolean;
   autoTradingDryRun: boolean;
   confirmBeforeExecution: boolean;
-  // New config options
+  // Updated config options
   positionSizePercentage: number;
-  exchangeFeePercentage: number;
-  minWinThreshold: number;
+  exchangeFeePercentage: number; // This will be dynamic per exchange
+  currentExchange: string; // Track which exchange we're using
 }
 
 const convertToPredictionOutput = (data: any): PredictionOutput | null => {
@@ -87,6 +86,14 @@ const convertToPredictionOutput = (data: any): PredictionOutput | null => {
   return null;
 };
 
+// Exchange fee rates - this should eventually come from API configs
+const EXCHANGE_FEES = {
+  'binance': 0.1,
+  'binance_us': 0.1,
+  'coinbase': 0.5,
+  'kraken': 0.26
+};
+
 export const useAdvancedTradingSystem = (
   symbol: string,
   bids: any[],
@@ -112,7 +119,6 @@ export const useAdvancedTradingSystem = (
     riskPerTrade: 100,
     enableProfitLock: true,
     profitLockPercentage: 100, // Lock 100% of profits
-    minProfitLockThreshold: 0,
     useKellyCriterion: true,
     maxKellyFraction: 0.20,
     enableTrailingStop: true,
@@ -125,10 +131,10 @@ export const useAdvancedTradingSystem = (
     autoTradingEnabled: true,
     autoTradingDryRun: false,
     confirmBeforeExecution: false,
-    // New dynamic sizing and fee settings
-    positionSizePercentage: 2.0, // Use 2% of available balance per trade
-    exchangeFeePercentage: 0.1, // 0.1% exchange fee (typical for Binance)
-    minWinThreshold: 0.2 // Minimum 0.2% profit to consider a win
+    // Updated settings
+    positionSizePercentage: 2.0,
+    exchangeFeePercentage: 0.1, // Default, but will be dynamic
+    currentExchange: 'binance_us' // Default exchange
   });
 
   const [indicators, setIndicators] = useState<AdvancedIndicators | null>(null);
@@ -146,6 +152,11 @@ export const useAdvancedTradingSystem = (
   const positionManager = useRef<PositionManager | null>(null);
   const lastSignalTime = useRef(0);
   const lastPriceUpdate = useRef(0);
+
+  // Get dynamic exchange fee rate based on current exchange
+  const getCurrentExchangeFeeRate = useCallback((): number => {
+    return EXCHANGE_FEES[config.currentExchange as keyof typeof EXCHANGE_FEES] || 0.1;
+  }, [config.currentExchange]);
 
   // Initialize services only once
   useEffect(() => {
@@ -194,8 +205,8 @@ export const useAdvancedTradingSystem = (
     autoTradingEngine.current = new AutoTradingEngine(autoConfig);
     positionManager.current = new PositionManager(positionConfig);
 
-    console.log('[Trading System] ⚙️ Auto trading and position manager updated with profit locking enabled');
-  }, [config, isInitialized]);
+    console.log(`[Trading System] ⚙️ Auto trading and position manager updated - Exchange: ${config.currentExchange}, Fee: ${getCurrentExchangeFeeRate()}%`);
+  }, [config, isInitialized, getCurrentExchangeFeeRate]);
 
   // Calculate dynamic position size based on available balance
   const calculateDynamicPositionSize = useCallback((
@@ -210,32 +221,32 @@ export const useAdvancedTradingSystem = (
     return Math.max(0.001, positionSize); // Minimum position size
   }, [config.positionSizePercentage]);
 
-  // Calculate exchange fees for a trade
+  // Calculate exchange fees for a trade using dynamic fee rate
   const calculateExchangeFees = useCallback((
     positionSize: number,
     price: number
   ): number => {
+    const currentFeeRate = getCurrentExchangeFeeRate();
     const tradeValue = positionSize * price;
-    const fees = tradeValue * (config.exchangeFeePercentage / 100) * 2; // Buy + Sell fees
+    const fees = tradeValue * (currentFeeRate / 100) * 2; // Buy + Sell fees
     
-    console.log(`[Fees] 💳 Exchange fees: ${config.exchangeFeePercentage}% x 2 = ${fees.toFixed(2)} on ${tradeValue.toFixed(2)} trade value`);
+    console.log(`[Fees] 💳 ${config.currentExchange} fees: ${currentFeeRate}% x 2 = ${fees.toFixed(2)} on ${tradeValue.toFixed(2)} trade value`);
     
     return fees;
-  }, [config.exchangeFeePercentage]);
+  }, [getCurrentExchangeFeeRate, config.currentExchange]);
 
-  // Check if a trade qualifies as a win after fees
+  // Simplified win condition - anything over exchange fees
   const isTradeWin = useCallback((
     grossProfit: number,
     exchangeFees: number
   ): boolean => {
     const netProfit = grossProfit - exchangeFees;
-    const minThresholdAmount = portfolio.baseCapital * (config.minWinThreshold / 100);
-    const isWin = netProfit > Math.max(0, minThresholdAmount);
+    const isWin = netProfit > 0; // Simple: any profit after fees is a win
     
-    console.log(`[Win Check] 📊 Gross: ${grossProfit.toFixed(2)}, Fees: ${exchangeFees.toFixed(2)}, Net: ${netPnL.toFixed(2)}, Threshold: ${minThresholdAmount.toFixed(2)}, Win: ${isWin}`);
+    console.log(`[Win Check] 📊 Gross: ${grossProfit.toFixed(2)}, Fees: ${exchangeFees.toFixed(2)}, Net: ${netProfit.toFixed(2)}, Win: ${isWin}`);
     
     return isWin;
-  }, [portfolio.baseCapital, config.minWinThreshold]);
+  }, []);
 
   // Portfolio Management Functions
   const addPosition = useCallback((
@@ -669,7 +680,7 @@ export const useAdvancedTradingSystem = (
       const exchangeFees = calculateExchangeFees(managedPos.position.size, (managedPos.position.entryPrice + exitPrice) / 2);
       const netPnL = grossPnL - exchangeFees;
       
-      // Use the new win condition based on fees and threshold
+      // Use the simplified win condition
       const tradeWin = isTradeWin(grossPnL, exchangeFees);
 
       const outcome: TradeOutcome = {
@@ -679,7 +690,7 @@ export const useAdvancedTradingSystem = (
         holdingTime: (Date.now() - managedPos.entryTime) / 1000,
         prediction: managedPos.prediction,
         actualReturn: actualReturn * 100,
-        success: tradeWin, // Use the improved win condition
+        success: tradeWin,
         maxAdverseExcursion: managedPos.maxAdverseExcursion * 100,
         maxFavorableExcursion: managedPos.maxFavorableExcursion * 100
       };
@@ -690,14 +701,21 @@ export const useAdvancedTradingSystem = (
         autoTradingEngine.current.updateDailyPnL(netPnL);
       }
       
-      console.log(`[Trading Bot] 🎓 Learning from trade: Net P&L=${netPnL.toFixed(3)}, Win=${tradeWin}, Fees=${exchangeFees.toFixed(2)}, Reason=${reason}`);
+      console.log(`[Trading Bot] 🎓 Learning from trade: Net P&L=${netPnL.toFixed(3)}, Win=${tradeWin}, Fees=${exchangeFees.toFixed(2)}, Exchange=${config.currentExchange}, Reason=${reason}`);
     }
-  }, [closePosition, config.learningEnabled, calculateExchangeFees, isTradeWin]);
+  }, [closePosition, config.learningEnabled, config.currentExchange, calculateExchangeFees, isTradeWin]);
 
+  // Update the config update function to handle exchange changes
   const updateConfig = useCallback((newConfig: Partial<AdvancedTradingConfig>) => {
     console.log(`[Trading Bot] 🔧 Configuration updated:`, newConfig);
     setConfig(prev => {
       const updated = { ...prev, ...newConfig };
+      
+      // Log exchange fee changes
+      if (newConfig.currentExchange && newConfig.currentExchange !== prev.currentExchange) {
+        const newFeeRate = EXCHANGE_FEES[newConfig.currentExchange as keyof typeof EXCHANGE_FEES] || 0.1;
+        console.log(`[Trading Bot] 🔄 Exchange changed from ${prev.currentExchange} to ${newConfig.currentExchange}, fee rate: ${newFeeRate}%`);
+      }
       
       if (autoTradingEngine.current) {
         autoTradingEngine.current.updateConfig({
@@ -786,6 +804,8 @@ export const useAdvancedTradingSystem = (
     // Expose new functionality
     calculateDynamicPositionSize,
     calculateExchangeFees,
-    isTradeWin
+    isTradeWin,
+    getCurrentExchangeFeeRate,
+    supportedExchanges: Object.keys(EXCHANGE_FEES)
   };
 };
