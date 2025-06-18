@@ -57,6 +57,33 @@ interface PositionTracking {
   partialProfitsTaken: number;
 }
 
+// Helper function to safely convert Json to PredictionOutput
+const convertToPredictionOutput = (data: any): PredictionOutput | null => {
+  if (!data || typeof data !== 'object') return null;
+  
+  // Check if the data has the required properties for PredictionOutput
+  if (
+    typeof data.probability === 'number' &&
+    typeof data.confidence === 'number' &&
+    typeof data.expectedReturn === 'number' &&
+    typeof data.timeHorizon === 'number'
+  ) {
+    return {
+      probability: data.probability,
+      confidence: data.confidence,
+      expectedReturn: data.expectedReturn,
+      timeHorizon: data.timeHorizon,
+      riskScore: data.riskScore || 0,
+      kellyFraction: data.kellyFraction || 0,
+      maxAdverseExcursion: data.maxAdverseExcursion || 0,
+      features: data.features || { technical: 0, momentum: 0, volume: 0, orderbook: 0 },
+      featureContributions: data.featureContributions || null
+    };
+  }
+  
+  return null;
+};
+
 export const useAdvancedTradingSystem = (
   symbol: string,
   bids: any[],
@@ -131,14 +158,16 @@ export const useAdvancedTradingSystem = (
         
         // Convert database positions to TradeOutcomes and update model
         positions.forEach(position => {
-          if (position.prediction_data && position.realized_pnl !== null) {
+          const predictionOutput = convertToPredictionOutput(position.prediction_data);
+          
+          if (predictionOutput && position.realized_pnl !== null) {
             const outcome: TradeOutcome = {
               entryPrice: position.entry_price,
               exitPrice: position.exit_price || position.current_price,
               profitLoss: position.realized_pnl,
               holdingTime: position.exit_time ? 
                 (new Date(position.exit_time).getTime() - new Date(position.entry_time).getTime()) / 1000 : 60,
-              prediction: position.prediction_data as PredictionOutput,
+              prediction: predictionOutput,
               actualReturn: position.realized_pnl / (position.entry_price * position.size) * 100,
               success: position.realized_pnl > 0,
               maxAdverseExcursion: position.max_adverse_excursion || 0,
