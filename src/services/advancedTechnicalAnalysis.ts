@@ -50,7 +50,7 @@ export interface OHLCData {
   timestamp: number;
 }
 
-export class AdvancedTechnicalAnalysis {
+export class TechnicalAnalysisEngine {
   private priceHistory: number[] = [];
   private volumeHistory: number[] = [];
   private ohlcData: OHLCData[] = [];
@@ -446,7 +446,7 @@ export class AdvancedTechnicalAnalysis {
 }
 
 // Create a singleton instance for the advanced technical analysis
-const technicalAnalysisInstance = new AdvancedTechnicalAnalysis();
+const technicalAnalysisInstance = new TechnicalAnalysisEngine();
 
 // Export a function that uses the singleton instance
 export const advancedTechnicalAnalysis = async (price: number, volume: number) => {
@@ -488,4 +488,5 @@ export const advancedTechnicalAnalysis = async (price: number, volume: number) =
   };
 };
 
-export { AdvancedTechnicalAnalysis };
+// Export the class with a different name to avoid conflicts
+export { TechnicalAnalysisEngine };
