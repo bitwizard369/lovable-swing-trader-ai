@@ -35,36 +35,36 @@ export const MarketContextChart = ({ marketContext, indicators }: MarketContextC
     );
   }
 
-  // Create radar chart data from indicators
+  // Create radar chart data from indicators with null checks
   const radarData = [
     {
       indicator: 'RSI',
-      value: indicators.rsi_14 / 100,
+      value: (indicators.rsi_14 || 0) / 100,
       fullMark: 1,
     },
     {
       indicator: 'Trend',
-      value: indicators.trend_strength / 100,
+      value: (indicators.trend_strength || 0) / 100,
       fullMark: 1,
     },
     {
       indicator: 'Volatility',
-      value: Math.min(indicators.atr / 100, 1),
+      value: Math.min((indicators.atr || 0) / 100, 1),
       fullMark: 1,
     },
     {
       indicator: 'Volume',
-      value: Math.min(indicators.volume_ratio / 2, 1),
+      value: Math.min((indicators.volume_ratio || 0) / 2, 1),
       fullMark: 1,
     },
     {
       indicator: 'Momentum',
-      value: Math.abs(indicators.macd) / 0.01,
+      value: Math.abs(indicators.macd || 0) / 0.01,
       fullMark: 1,
     },
     {
       indicator: 'Stochastic',
-      value: indicators.stoch_k / 100,
+      value: (indicators.stoch_k || 0) / 100,
       fullMark: 1,
     },
   ];
@@ -158,17 +158,17 @@ export const MarketContextChart = ({ marketContext, indicators }: MarketContextC
         <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
           <div>
             <p className="text-muted-foreground">RSI (14)</p>
-            <p className={`font-mono ${indicators.rsi_14 > 70 ? 'text-red-500' : indicators.rsi_14 < 30 ? 'text-green-500' : ''}`}>
-              {indicators.rsi_14.toFixed(2)}
+            <p className={`font-mono ${(indicators.rsi_14 || 0) > 70 ? 'text-red-500' : (indicators.rsi_14 || 0) < 30 ? 'text-green-500' : ''}`}>
+              {(indicators.rsi_14 || 0).toFixed(2)}
             </p>
           </div>
           <div>
             <p className="text-muted-foreground">ATR</p>
-            <p className="font-mono">{indicators.atr.toFixed(2)}</p>
+            <p className="font-mono">{(indicators.atr || 0).toFixed(2)}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Trend Strength</p>
-            <p className="font-mono">{indicators.trend_strength.toFixed(1)}%</p>
+            <p className="font-mono">{(indicators.trend_strength || 0).toFixed(1)}%</p>
           </div>
         </div>
       </CardContent>
