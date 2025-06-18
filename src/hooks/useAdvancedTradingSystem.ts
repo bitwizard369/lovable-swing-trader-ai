@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -130,12 +129,67 @@ export const useAdvancedTradingSystem = (
   const [activePositions, setActivePositions] = useState<Map<string, PositionTracking>>(new Map());
   const [signals, setSignals] = useState<TradingSignal[]>([]);
   const [basicIndicators, setBasicIndicators] = useState<BasicTechnicalIndicators | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  const technicalAnalysis = useRef(new AdvancedTechnicalAnalysis());
-  const aiModel = useRef(new AIPredictionModel());
+  // Use refs to prevent re-initialization
+  const technicalAnalysis = useRef<AdvancedTechnicalAnalysis | null>(null);
+  const aiModel = useRef<AIPredictionModel | null>(null);
   const autoTradingEngine = useRef<AutoTradingEngine | null>(null);
   const positionManager = useRef<PositionManager | null>(null);
   const lastSignalTime = useRef(0);
+  const lastPriceUpdate = useRef(0);
+
+  // Initialize services only once
+  useEffect(() => {
+    if (!isInitialized) {
+      console.log('[Trading System] 🚀 Initializing core services...');
+      
+      // Initialize technical analysis
+      if (!technicalAnalysis.current) {
+        technicalAnalysis.current = new AdvancedTechnicalAnalysis();
+        console.log('[Trading System] ✅ Technical Analysis initialized');
+      }
+
+      // Initialize AI model
+      if (!aiModel.current) {
+        aiModel.current = new AIPredictionModel();
+        console.log('[Trading System] ✅ AI Model initialized');
+      }
+
+      setIsInitialized(true);
+      console.log('[Trading System] ✅ Core services initialized successfully');
+    }
+  }, []);
+
+  // Initialize auto trading and position manager when config changes
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    const autoConfig: AutoTradingConfig = {
+      enabled: config.autoTradingEnabled,
+      maxPositionsPerSymbol: config.maxPositionsPerSymbol,
+      maxDailyLoss: config.maxDailyLoss,
+      emergencyStopEnabled: true,
+      dryRunMode: config.autoTradingDryRun,
+      confirmBeforeExecution: config.confirmBeforeExecution
+    };
+
+    const positionConfig: PositionManagerConfig = {
+      enableTrailingStops: config.enableTrailingStop,
+      trailingStopATRMultiplier: config.trailingStopATRMultiplier,
+      enableTakeProfit: true,
+      takeProfitMultiplier: config.takeProfitPercentage / 100,
+      enableStopLoss: true,
+      stopLossMultiplier: config.stopLossPercentage / 100,
+      enablePartialProfits: config.enablePartialProfits,
+      partialProfitLevels: config.partialProfitLevels
+    };
+
+    autoTradingEngine.current = new AutoTradingEngine(autoConfig);
+    positionManager.current = new PositionManager(positionConfig);
+
+    console.log('[Trading System] ⚙️ Auto trading and position manager updated');
+  }, [config, isInitialized]);
 
   // Utility functions
   const calculateOrderBookImbalance = useCallback(() => {
@@ -158,6 +212,59 @@ export const useAdvancedTradingSystem = (
       weightedMidPrice
     };
   }, [bids, asks]);
+
+  // CORE MARKET DATA PROCESSING LOOP - This was missing!
+  useEffect(() => {
+    if (!isInitialized || !technicalAnalysis.current || !aiModel.current) return;
+    if (bids.length === 0 || asks.length === 0) return;
+
+    const currentPrice = (bids[0].price + asks[0].price) / 2;
+    const currentTime = Date.now();
+    
+    // Rate limit price updates to every 500ms
+    if (currentTime - lastPriceUpdate.current < 500) return;
+    lastPriceUpdate.current = currentTime;
+
+    console.log(`[Trading System] 📊 Processing market data: ${currentPrice.toFixed(2)}`);
+
+    try {
+      // Update technical analysis with new price data
+      const estimatedVolume = (bids[0]?.quantity || 0) + (asks[0]?.quantity || 0);
+      technicalAnalysis.current.updatePriceData(currentPrice, estimatedVolume);
+
+      // Calculate technical indicators
+      const newIndicators = technicalAnalysis.current.calculateAdvancedIndicators();
+      if (newIndicators) {
+        setIndicators(newIndicators);
+        
+        // Update basic indicators for display
+        setBasicIndicators({
+          rsi: newIndicators.rsi_14,
+          ema_fast: newIndicators.ema_12,
+          ema_slow: newIndicators.ema_26,
+          macd: newIndicators.macd,
+          signal: newIndicators.macd_signal,
+          volume_ratio: newIndicators.volume_ratio
+        });
+
+        console.log(`[Trading System] 📈 Indicators updated - RSI: ${newIndicators.rsi_14.toFixed(2)}, MACD: ${newIndicators.macd.toFixed(4)}`);
+      }
+
+      // Get market context
+      const newMarketContext = technicalAnalysis.current.getMarketContext();
+      setMarketContext(newMarketContext);
+
+      // Generate trading signals if we have enough data
+      if (newIndicators && technicalAnalysis.current.getPriceHistoryLength() > 26) {
+        generateRecalibratedSignal(currentPrice, newIndicators, newMarketContext);
+      } else {
+        console.log(`[Trading System] ⏳ Waiting for more data: ${technicalAnalysis.current.getPriceHistoryLength()}/26 price points`);
+      }
+
+    } catch (error) {
+      console.error('[Trading System] ❌ Error processing market data:', error);
+    }
+  }, [bids, asks, isInitialized]);
 
   const getDynamicConfig = useCallback((
     baseConfig: AdvancedTradingConfig, 
@@ -203,9 +310,12 @@ export const useAdvancedTradingSystem = (
     const meetsRisk = prediction.riskScore <= dynamicConfig.maxRiskScore;
     const meetsLiquidity = marketContext.liquidityScore >= dynamicConfig.minLiquidityScore;
 
-    console.log(`[Signal Check] Confidence: ${prediction.confidence.toFixed(3)} >= ${dynamicConfig.minConfidence.toFixed(3)} = ${meetsConfidence}`);
-    console.log(`[Signal Check] Probability: ${prediction.probability.toFixed(3)} >= ${dynamicConfig.minProbability.toFixed(3)} = ${meetsProbability}`);
-    console.log(`[Signal Check] Risk: ${prediction.riskScore.toFixed(3)} <= ${dynamicConfig.maxRiskScore.toFixed(3)} = ${meetsRisk}`);
+    if (dynamicConfig.debugMode) {
+      console.log(`[Signal Check] Confidence: ${prediction.confidence.toFixed(3)} >= ${dynamicConfig.minConfidence.toFixed(3)} = ${meetsConfidence}`);
+      console.log(`[Signal Check] Probability: ${prediction.probability.toFixed(3)} >= ${dynamicConfig.minProbability.toFixed(3)} = ${meetsProbability}`);
+      console.log(`[Signal Check] Risk: ${prediction.riskScore.toFixed(3)} <= ${dynamicConfig.maxRiskScore.toFixed(3)} = ${meetsRisk}`);
+      console.log(`[Signal Check] Liquidity: ${marketContext.liquidityScore.toFixed(3)} >= ${dynamicConfig.minLiquidityScore.toFixed(3)} = ${meetsLiquidity}`);
+    }
 
     return meetsConfidence && meetsProbability && meetsRisk && meetsLiquidity;
   }, []);
@@ -239,196 +349,91 @@ export const useAdvancedTradingSystem = (
     };
   }, [symbol, config, portfolio.availableBalance]);
 
-  const getModelPerformance = useCallback(() => {
-    return aiModel.current.getModelPerformance();
-  }, []);
-
-  const resetAIModel = useCallback(() => {
-    aiModel.current.resetModelState();
-    console.log('[AI Model] Model reset to initial state');
-  }, []);
-
-  const syncAIModelWithDatabase = useCallback(async () => {
-    if (!currentSessionId) return;
+  const generateRecalibratedSignal = useCallback(async (
+    currentPrice: number,
+    indicators: AdvancedIndicators,
+    marketContext: MarketContext
+  ) => {
+    if (!aiModel.current) return;
     
+    const now = Date.now();
+    const timeSinceLastSignal = now - lastSignalTime.current;
+    
+    // Rate limit signals to every 2 seconds
+    if (timeSinceLastSignal < 2000) {
+      return;
+    }
+
+    console.log(`[Trading System] 🎯 Generating prediction for ${currentPrice.toFixed(2)}`);
+
+    const orderBookImbalance = calculateOrderBookImbalance();
+    const deepOrderBookData = calculateDeepOrderBookData();
+    const recentPriceMovement = [currentPrice];
+    
+    const predictionInput = {
+      indicators,
+      marketContext,
+      orderBookImbalance,
+      recentPriceMovement,
+      timeOfDay: new Date().getHours(),
+      dayOfWeek: new Date().getDay(),
+      deepOrderBookData
+    };
+
     try {
-      // Sync model performance and state with database
-      const performance = getModelPerformance();
-      console.log('[Database Sync] Syncing AI model performance:', performance);
+      const newPrediction = aiModel.current.predict(predictionInput);
+      setPrediction(newPrediction);
+
+      const dynamicThresholds = config.useDynamicThresholds ? 
+        aiModel.current.getDynamicThresholds() : null;
       
-      // This would typically save the model state to Supabase
-      // Implementation depends on your database schema
-    } catch (error) {
-      console.error('[Database Sync] Failed to sync AI model:', error);
-    }
-  }, [currentSessionId, getModelPerformance]);
+      const adaptiveThresholds = config.useAdaptiveThresholds ? 
+        aiModel.current.getAdaptiveThresholds() : null;
 
-  useEffect(() => {
-    const autoConfig: AutoTradingConfig = {
-      enabled: config.autoTradingEnabled,
-      maxPositionsPerSymbol: config.maxPositionsPerSymbol,
-      maxDailyLoss: config.maxDailyLoss,
-      emergencyStopEnabled: true,
-      dryRunMode: config.autoTradingDryRun,
-      confirmBeforeExecution: config.confirmBeforeExecution
-    };
+      const dynamicConfig = getDynamicConfig(config, marketContext, adaptiveThresholds, dynamicThresholds);
 
-    const positionConfig: PositionManagerConfig = {
-      enableTrailingStops: config.enableTrailingStop,
-      trailingStopATRMultiplier: config.trailingStopATRMultiplier,
-      enableTakeProfit: true,
-      takeProfitMultiplier: config.takeProfitPercentage / 100,
-      enableStopLoss: true,
-      stopLossMultiplier: config.stopLossPercentage / 100,
-      enablePartialProfits: config.enablePartialProfits,
-      partialProfitLevels: config.partialProfitLevels
-    };
-
-    autoTradingEngine.current = new AutoTradingEngine(autoConfig);
-    positionManager.current = new PositionManager(positionConfig);
-  }, [config]);
-
-  const canOpenPosition = useCallback((positionValue: number): boolean => {
-    const openPositions = portfolio.positions.filter(p => p.status === 'OPEN').length;
-    
-    const hasEnoughBalance = portfolio.availableBalance >= positionValue;
-    const isUnderMaxPositions = openPositions < config.maxOpenPositions;
-    const isUnderMaxSize = positionValue <= config.maxPositionSize;
-    const isUnderMaxLoss = Math.abs(portfolio.dayPnL) < config.maxDailyLoss;
-
-    return hasEnoughBalance && isUnderMaxPositions && isUnderMaxSize && isUnderMaxLoss;
-  }, [portfolio, config]);
-
-  const addPosition = useCallback((position: Omit<Position, 'id' | 'unrealizedPnL' | 'realizedPnL' | 'status'>, prediction?: PredictionOutput): Position | null => {
-    const positionValue = position.size * position.entryPrice;
-    if (!canOpenPosition(positionValue)) {
-        console.log(`[Trading Bot] ❌ Cannot open position: Risk limits exceeded`);
-        return null;
-    }
-
-    const newPosition: Position = {
-      ...position,
-      id: Date.now().toString(),
-      unrealizedPnL: 0,
-      realizedPnL: 0,
-      status: 'OPEN'
-    };
-
-    setPortfolio(prev => ({
-        ...prev,
-        positions: [...prev.positions, newPosition],
-        availableBalance: prev.availableBalance - positionValue
-    }));
-
-    if (prediction && positionManager.current && indicators) {
-      positionManager.current.addPosition(newPosition, prediction, indicators);
-    }
-
-    console.log(`[Trading Bot] ✅ Position opened: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
-
-    return newPosition;
-  }, [canOpenPosition, indicators]);
-
-  const closePosition = useCallback((positionId: string, closePrice: number) => {
-    setPortfolio(prev => {
-      const position = prev.positions.find(p => p.id === positionId);
-      if (!position || position.status === 'CLOSED') return prev;
-
-      const realizedPnL = position.side === 'BUY'
-        ? (closePrice - position.entryPrice) * position.size
-        : (position.entryPrice - closePrice) * position.size;
-
-      const positionValueAtClose = position.size * closePrice;
-      
-      let newLockedProfits = prev.lockedProfits;
-      let newAvailableBalance = prev.availableBalance + positionValueAtClose;
-
-      if (config.enableProfitLock && realizedPnL > 0) {
-        const isAboveThreshold = config.minProfitLockThreshold === undefined || realizedPnL >= config.minProfitLockThreshold;
-        if (isAboveThreshold) {
-          const lockedAmount = realizedPnL * config.profitLockPercentage;
-          newLockedProfits += lockedAmount;
-          newAvailableBalance -= lockedAmount;
-          console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD profit`);
-        }
-      }
-
-      console.log(`[Trading Bot] 🚪 Position closed: ${position.symbol} P&L: ${realizedPnL.toFixed(2)} USD`);
-
-      return {
-        ...prev,
-        positions: prev.positions.map(p =>
-          p.id === positionId
-            ? { ...p, status: 'CLOSED' as const, realizedPnL, currentPrice: closePrice }
-            : p
-        ),
-        availableBalance: newAvailableBalance,
-        lockedProfits: newLockedProfits,
-        totalPnL: prev.totalPnL + realizedPnL,
-        dayPnL: prev.dayPnL + realizedPnL,
-      };
-    });
-  }, [config.enableProfitLock, config.profitLockPercentage, config.minProfitLockThreshold]);
-
-  const updatePositionPrices = useCallback((currentPrice: number) => {
-    setPortfolio(prev => {
-        const updatedPositions = prev.positions.map(position => {
-            if (position.symbol === symbol && position.status === 'OPEN') {
-                const unrealizedPnL = position.side === 'BUY'
-                    ? (currentPrice - position.entryPrice) * position.size
-                    : (position.entryPrice - currentPrice) * position.size;
-                return { ...position, currentPrice, unrealizedPnL };
-            }
-            return position;
-        });
-
-        const totalUnrealizedPnL = updatedPositions
-            .filter(p => p.status === 'OPEN')
-            .reduce((sum, p) => sum + p.unrealizedPnL, 0);
-
-        return {
-            ...prev,
-            positions: updatedPositions,
-            equity: prev.baseCapital + prev.totalPnL + prev.lockedProfits + totalUnrealizedPnL
-        };
-    });
-  }, [symbol]);
-
-  const updatePositionTracking = useCallback((currentPrice: number) => {
-    if (!positionManager.current) return;
-
-    const managedPositions = positionManager.current.getAllPositions();
-    
-    managedPositions.forEach((managedPos) => {
-      const { position } = managedPos;
-      
-      if (position.symbol === symbol && position.status === 'OPEN') {
-        const exitCheck = positionManager.current!.updatePosition(
-          position.id, 
-          currentPrice, 
-          indicators || undefined
-        );
-
-        if (exitCheck.shouldExit) {
-          console.log(`[Position Manager] 🚪 ${exitCheck.isPartialExit ? 'Partial' : 'Full'} exit triggered: ${exitCheck.exitReason}`);
+      if (shouldGenerateRecalibratedSignal(newPrediction, dynamicConfig, marketContext, dynamicThresholds || adaptiveThresholds)) {
+        console.log(`[Trading System] ✅ Signal conditions met! Generating signal...`);
+        
+        const signal = createEnhancedTradingSignal(currentPrice, newPrediction, indicators, marketContext);
+        
+        if (signal) {
+          setSignals(prev => [...prev.slice(-9), signal]);
           
-          if (exitCheck.isPartialExit && exitCheck.exitQuantity) {
-            handlePartialExit(position.id, currentPrice, exitCheck.exitQuantity, exitCheck.exitReason || 'Partial exit');
-          } else {
-            exitPosition(position.id, currentPrice, exitCheck.exitReason || 'Exit condition met');
-          }
-        }
-      }
-    });
-  }, [symbol, indicators]);
+          // Execute signal if auto trading is enabled
+          if (autoTradingEngine.current) {
+            const canExecute = autoTradingEngine.current.canExecuteTrade(
+              signal, 
+              portfolio.positions, 
+              portfolio.availableBalance
+            );
 
-  useEffect(() => {
-    if (bids.length > 0 && asks.length > 0) {
-      const currentPrice = (bids[0].price + asks[0].price) / 2;
-      updatePositionPrices(currentPrice);
-      updatePositionTracking(currentPrice);
+            if (canExecute.canExecute) {
+              const result = await autoTradingEngine.current.executeSignal(
+                signal, 
+                newPrediction, 
+                executeAdvancedSignal
+              );
+
+              if (result.success) {
+                console.log(`[Auto Trading] ✅ Signal executed successfully`);
+              } else {
+                console.error(`[Auto Trading] ❌ Failed to execute signal: ${result.error}`);
+              }
+            } else {
+              console.log(`[Auto Trading] ⚠️ Cannot execute signal: ${canExecute.reason}`);
+            }
+          }
+          
+          lastSignalTime.current = now;
+        }
+      } else {
+        console.log(`[Trading System] ❌ Signal conditions not met - awaiting better opportunity`);
+      }
+    } catch (error) {
+      console.error('[Trading System] ❌ Error generating signal:', error);
     }
-  }, [bids, asks, updatePositionPrices, updatePositionTracking]);
+  }, [config, getDynamicConfig, portfolio, calculateOrderBookImbalance, calculateDeepOrderBookData, shouldGenerateRecalibratedSignal, createEnhancedTradingSignal]);
 
   const executeAdvancedSignal = useCallback(async (
     signal: TradingSignal,
@@ -459,82 +464,6 @@ export const useAdvancedTradingSystem = (
     return newPosition;
   }, [addPosition]);
 
-  const generateRecalibratedSignal = useCallback(async (
-    currentPrice: number,
-    indicators: AdvancedIndicators,
-    marketContext: MarketContext
-  ) => {
-    const now = Date.now();
-    const timeSinceLastSignal = now - lastSignalTime.current;
-    
-    if (timeSinceLastSignal < 2000) {
-      console.log(`[Trading Bot] ⏰ Rate limiting: ${2000 - timeSinceLastSignal}ms remaining`);
-      return;
-    }
-
-    const orderBookImbalance = calculateOrderBookImbalance();
-    const deepOrderBookData = calculateDeepOrderBookData();
-    const recentPriceMovement = [currentPrice];
-    
-    const predictionInput = {
-      indicators,
-      marketContext,
-      orderBookImbalance,
-      recentPriceMovement,
-      timeOfDay: new Date().getHours(),
-      dayOfWeek: new Date().getDay(),
-      deepOrderBookData
-    };
-
-    const newPrediction = aiModel.current.predict(predictionInput);
-    setPrediction(newPrediction);
-
-    const dynamicThresholds = config.useDynamicThresholds ? 
-      aiModel.current.getDynamicThresholds() : null;
-    
-    const adaptiveThresholds = config.useAdaptiveThresholds ? 
-      aiModel.current.getAdaptiveThresholds() : null;
-
-    const dynamicConfig = getDynamicConfig(config, marketContext, adaptiveThresholds, dynamicThresholds);
-
-    if (shouldGenerateRecalibratedSignal(newPrediction, dynamicConfig, marketContext, dynamicThresholds || adaptiveThresholds)) {
-      console.log(`[Trading Bot] 🎯 Signal conditions met!`);
-      const signal = createEnhancedTradingSignal(currentPrice, newPrediction, indicators, marketContext);
-      
-      if (signal) {
-        setSignals(prev => [...prev.slice(-9), signal]);
-        
-        if (autoTradingEngine.current) {
-          const canExecute = autoTradingEngine.current.canExecuteTrade(
-            signal, 
-            portfolio.positions, 
-            portfolio.availableBalance
-          );
-
-          if (canExecute.canExecute) {
-            const result = await autoTradingEngine.current.executeSignal(
-              signal, 
-              newPrediction, 
-              executeAdvancedSignal
-            );
-
-            if (result.success) {
-              console.log(`[Auto Trading] ✅ Signal executed successfully`);
-            } else {
-              console.error(`[Auto Trading] ❌ Failed to execute signal: ${result.error}`);
-            }
-          } else {
-            console.log(`[Auto Trading] ⚠️ Cannot execute signal: ${canExecute.reason}`);
-          }
-        }
-        
-        lastSignalTime.current = now;
-      }
-    } else {
-      console.log(`[Trading Bot] ❌ Signal conditions not met - awaiting better opportunity`);
-    }
-  }, [config, getDynamicConfig, portfolio, executeAdvancedSignal, calculateOrderBookImbalance, calculateDeepOrderBookData, shouldGenerateRecalibratedSignal, createEnhancedTradingSignal]);
-
   const handlePartialExit = useCallback((
     positionId: string,
     exitPrice: number,
@@ -559,7 +488,7 @@ export const useAdvancedTradingSystem = (
     const managedPos = positionManager.current?.removePosition(positionId);
     closePosition(positionId, exitPrice);
 
-    if (config.learningEnabled && managedPos) {
+    if (config.learningEnabled && managedPos && aiModel.current) {
       const actualReturn = managedPos.position.side === 'BUY'
         ? (exitPrice - managedPos.position.entryPrice) / managedPos.position.entryPrice
         : (managedPos.position.entryPrice - exitPrice) / managedPos.position.entryPrice;
