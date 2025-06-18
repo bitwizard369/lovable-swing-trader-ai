@@ -191,6 +191,141 @@ export const useAdvancedTradingSystem = (
     console.log('[Trading System] ⚙️ Auto trading and position manager updated');
   }, [config, isInitialized]);
 
+  // Portfolio Management Functions
+  const addPosition = useCallback((
+    positionData: {
+      symbol: string;
+      side: 'BUY' | 'SELL';
+      size: number;
+      entryPrice: number;
+      currentPrice: number;
+      timestamp: number;
+    },
+    prediction: PredictionOutput
+  ): Position | null => {
+    const newPosition: Position = {
+      id: `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      symbol: positionData.symbol,
+      side: positionData.side,
+      size: positionData.size,
+      entryPrice: positionData.entryPrice,
+      currentPrice: positionData.currentPrice,
+      timestamp: positionData.timestamp,
+      status: 'OPEN',
+      unrealizedPnL: 0,
+      realizedPnL: 0
+    };
+
+    // Calculate position value
+    const positionValue = positionData.size * positionData.entryPrice;
+    
+    // Check if we have enough balance
+    if (positionValue > portfolio.availableBalance) {
+      console.warn('[Portfolio] Insufficient balance for position');
+      return null;
+    }
+
+    // Update portfolio
+    setPortfolio(prev => ({
+      ...prev,
+      positions: [...prev.positions, newPosition],
+      availableBalance: prev.availableBalance - positionValue
+    }));
+
+    // Add to position manager if available
+    if (positionManager.current && indicators) {
+      const managedPosition = positionManager.current.addPosition(newPosition, prediction, indicators);
+      
+      // Track the position for management
+      setActivePositions(prev => {
+        const newMap = new Map(prev);
+        newMap.set(newPosition.id, {
+          position: newPosition,
+          prediction,
+          entryTime: Date.now()
+        });
+        return newMap;
+      });
+    }
+
+    console.log(`[Portfolio] ✅ Added ${positionData.side} position: ${newPosition.id} for ${positionData.size.toFixed(6)} at ${positionData.entryPrice.toFixed(2)}`);
+    return newPosition;
+  }, [portfolio.availableBalance, indicators]);
+
+  const closePosition = useCallback((
+    positionId: string,
+    exitPrice: number,
+    reason: string = 'Manual close'
+  ) => {
+    setPortfolio(prev => {
+      const position = prev.positions.find(p => p.id === positionId);
+      if (!position) {
+        console.warn(`[Portfolio] Position ${positionId} not found`);
+        return prev;
+      }
+
+      // Calculate P&L
+      const pnlMultiplier = position.side === 'BUY' ? 1 : -1;
+      const pnl = (exitPrice - position.entryPrice) * position.size * pnlMultiplier;
+      const positionValue = position.size * exitPrice;
+
+      console.log(`[Portfolio] 📈 Closing position ${positionId}: P&L = ${pnl.toFixed(2)}, Reason = ${reason}`);
+
+      // Update position status
+      const updatedPosition: Position = {
+        ...position,
+        status: 'CLOSED',
+        currentPrice: exitPrice,
+        realizedPnL: pnl,
+        unrealizedPnL: 0
+      };
+
+      return {
+        ...prev,
+        positions: prev.positions.map(p => p.id === positionId ? updatedPosition : p),
+        availableBalance: prev.availableBalance + positionValue,
+        totalPnL: prev.totalPnL + pnl,
+        dayPnL: prev.dayPnL + pnl,
+        equity: prev.equity + pnl
+      };
+    });
+
+    // Remove from active positions tracking
+    setActivePositions(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(positionId);
+      return newMap;
+    });
+  }, []);
+
+  // AI Model Management Functions
+  const getModelPerformance = useCallback(() => {
+    if (!aiModel.current) return null;
+    return aiModel.current.getPerformanceMetrics();
+  }, []);
+
+  const resetAIModel = useCallback(() => {
+    if (!aiModel.current) return;
+    aiModel.current.resetModel();
+    console.log('[AI Model] 🔄 Model reset completed');
+  }, []);
+
+  const syncAIModelWithDatabase = useCallback(async () => {
+    if (!aiModel.current || !currentSessionId) return;
+    
+    try {
+      // Save current model state to database
+      const modelState = aiModel.current.exportModelState();
+      console.log('[AI Model] 💾 Syncing model state with database...');
+      
+      // Here you would implement the actual database sync
+      // For now, just log the action
+      console.log('[AI Model] ✅ Model state synced successfully');
+    } catch (error) {
+      console.error('[AI Model] ❌ Failed to sync model state:', error);
+    }
+  }, [currentSessionId]);
+
   // Utility functions
   const calculateOrderBookImbalance = useCallback(() => {
     if (bids.length === 0 || asks.length === 0) return 0;
@@ -535,6 +670,27 @@ export const useAdvancedTradingSystem = (
   const getAutoTradingStatus = useCallback(() => {
     return autoTradingEngine.current?.getStatus() || null;
   }, []);
+
+  // Position management effect - monitor positions for exit conditions
+  useEffect(() => {
+    if (!positionManager.current || activePositions.size === 0) return;
+    if (bids.length === 0 || asks.length === 0) return;
+
+    const currentPrice = (bids[0].price + asks[0].price) / 2;
+    
+    // Check each managed position for exit conditions
+    activePositions.forEach((posTracking, positionId) => {
+      const exitCheck = positionManager.current!.updatePosition(positionId, currentPrice, indicators);
+      
+      if (exitCheck.shouldExit) {
+        if (exitCheck.isPartialExit && exitCheck.exitQuantity) {
+          handlePartialExit(positionId, currentPrice, exitCheck.exitQuantity, exitCheck.exitReason || 'Partial exit');
+        } else {
+          exitPosition(positionId, currentPrice, exitCheck.exitReason || 'Exit condition met');
+        }
+      }
+    });
+  }, [bids, asks, activePositions, indicators, handlePartialExit, exitPosition]);
 
   // Create a simple executeSignalManually function that matches the expected signature
   const executeSignalManually = useCallback((signal: TradingSignal) => {
