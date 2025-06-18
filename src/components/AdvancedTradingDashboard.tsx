@@ -191,41 +191,32 @@ export const AdvancedTradingDashboard = ({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {modelPerformance ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Win Rate</p>
-                <div className="text-xl font-bold text-green-500">
-                  {formatPercent(modelPerformance.winRate)}
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Sharpe Ratio</p>
-                <div className="text-xl font-bold">
-                  {modelPerformance.sharpeRatio.toFixed(2)}
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Max Drawdown</p>
-                <div className="text-xl font-bold text-red-500">
-                  {formatPercent(modelPerformance.maxDrawdown)}
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Total Trades</p>
-                <div className="text-xl font-bold">
-                  {modelPerformance.totalTrades}
-                </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Win Rate</p>
+              <div className="text-xl font-bold text-green-500">
+                {formatPercent(modelPerformance.winRate)}
               </div>
             </div>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">Model performance data is being calculated...</p>
-              <div className="mt-2 text-sm text-muted-foreground">
-                Performance metrics will appear once the AI model has processed enough data.
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Sharpe Ratio</p>
+              <div className="text-xl font-bold">
+                {modelPerformance.sharpeRatio.toFixed(2)}
               </div>
             </div>
-          )}
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Max Drawdown</p>
+              <div className="text-xl font-bold text-red-500">
+                {formatPercent(modelPerformance.maxDrawdown)}
+              </div>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Total Trades</p>
+              <div className="text-xl font-bold">
+                {modelPerformance.totalTrades}
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
