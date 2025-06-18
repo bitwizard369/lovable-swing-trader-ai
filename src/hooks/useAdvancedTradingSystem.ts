@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -23,6 +24,12 @@ interface BasicTechnicalIndicators {
   macd: number;
   signal: number;
   volume_ratio: number;
+}
+
+interface PositionTracking {
+  position: Position;
+  prediction: PredictionOutput;
+  entryTime: number;
 }
 
 interface AdvancedTradingConfig extends BaseTradingConfig {
@@ -129,6 +136,124 @@ export const useAdvancedTradingSystem = (
   const autoTradingEngine = useRef<AutoTradingEngine | null>(null);
   const positionManager = useRef<PositionManager | null>(null);
   const lastSignalTime = useRef(0);
+
+  // Utility functions
+  const calculateOrderBookImbalance = useCallback(() => {
+    if (bids.length === 0 || asks.length === 0) return 0;
+    const bidVolume = bids.slice(0, 5).reduce((sum, bid) => sum + bid.quantity, 0);
+    const askVolume = asks.slice(0, 5).reduce((sum, ask) => sum + ask.quantity, 0);
+    return (bidVolume - askVolume) / (bidVolume + askVolume);
+  }, [bids, asks]);
+
+  const calculateDeepOrderBookData = useCallback(() => {
+    return {
+      bidDepth: bids.slice(0, 10).reduce((sum, bid) => sum + bid.quantity, 0),
+      askDepth: asks.slice(0, 10).reduce((sum, ask) => sum + ask.quantity, 0),
+      spread: asks.length > 0 && bids.length > 0 ? asks[0].price - bids[0].price : 0
+    };
+  }, [bids, asks]);
+
+  const getDynamicConfig = useCallback((
+    baseConfig: AdvancedTradingConfig, 
+    marketContext: MarketContext | null, 
+    adaptiveThresholds: any = null, 
+    dynamicThresholds: any = null
+  ) => {
+    let adjustedConfig = { ...baseConfig };
+    
+    if (marketContext) {
+      // Adjust thresholds based on market volatility
+      const volatilityAdjustment = Math.min(marketContext.volatility / 100, 0.5);
+      adjustedConfig.minConfidence = Math.max(0.2, baseConfig.minConfidence - volatilityAdjustment);
+      adjustedConfig.minProbability = Math.max(0.45, baseConfig.minProbability - volatilityAdjustment);
+    }
+
+    // Apply adaptive or dynamic thresholds if available
+    if (adaptiveThresholds) {
+      adjustedConfig.minConfidence = adaptiveThresholds.confidence || adjustedConfig.minConfidence;
+      adjustedConfig.minProbability = adaptiveThresholds.probability || adjustedConfig.minProbability;
+    }
+
+    if (dynamicThresholds) {
+      adjustedConfig.minConfidence = dynamicThresholds.confidence || adjustedConfig.minConfidence;
+      adjustedConfig.minProbability = dynamicThresholds.probability || adjustedConfig.minProbability;
+    }
+
+    return adjustedConfig;
+  }, []);
+
+  const shouldGenerateRecalibratedSignal = useCallback((
+    prediction: PredictionOutput,
+    dynamicConfig: AdvancedTradingConfig,
+    marketContext: MarketContext | null,
+    thresholds: any = null
+  ) => {
+    if (!prediction || !marketContext) return false;
+
+    const meetsConfidence = prediction.confidence >= dynamicConfig.minConfidence;
+    const meetsProbability = prediction.probability >= dynamicConfig.minProbability;
+    const meetsRisk = prediction.riskScore <= dynamicConfig.maxRiskScore;
+    const meetsLiquidity = marketContext.liquidityScore >= dynamicConfig.minLiquidityScore;
+
+    console.log(`[Signal Check] Confidence: ${prediction.confidence.toFixed(3)} >= ${dynamicConfig.minConfidence.toFixed(3)} = ${meetsConfidence}`);
+    console.log(`[Signal Check] Probability: ${prediction.probability.toFixed(3)} >= ${dynamicConfig.minProbability.toFixed(3)} = ${meetsProbability}`);
+    console.log(`[Signal Check] Risk: ${prediction.riskScore.toFixed(3)} <= ${dynamicConfig.maxRiskScore.toFixed(3)} = ${meetsRisk}`);
+
+    return meetsConfidence && meetsProbability && meetsRisk && meetsLiquidity;
+  }, []);
+
+  const createEnhancedTradingSignal = useCallback((
+    currentPrice: number,
+    prediction: PredictionOutput,
+    indicators: AdvancedIndicators,
+    marketContext: MarketContext
+  ): TradingSignal | null => {
+    if (!prediction || !indicators || !marketContext) return null;
+
+    const action = prediction.probability > 0.5 ? 'BUY' : 'SELL';
+    const baseQuantity = config.riskPerTrade / currentPrice;
+    
+    // Apply Kelly Criterion if enabled
+    let quantity = baseQuantity;
+    if (config.useKellyCriterion && prediction.kellyFraction > 0) {
+      const kellyQuantity = (portfolio.availableBalance * Math.min(prediction.kellyFraction, config.maxKellyFraction)) / currentPrice;
+      quantity = Math.min(kellyQuantity, baseQuantity);
+    }
+
+    return {
+      symbol,
+      action: action as 'BUY' | 'SELL',
+      confidence: prediction.confidence,
+      price: currentPrice,
+      quantity: Math.max(0.001, quantity), // Minimum quantity
+      timestamp: Date.now(),
+      reasoning: `${action} signal with ${(prediction.confidence * 100).toFixed(1)}% confidence based on ${prediction.expectedReturn.toFixed(2)}% expected return. Kelly fraction: ${prediction.kellyFraction.toFixed(3)}`
+    };
+  }, [symbol, config, portfolio.availableBalance]);
+
+  const getModelPerformance = useCallback(() => {
+    return aiModel.current.getPerformanceMetrics();
+  }, []);
+
+  const resetAIModel = useCallback(() => {
+    aiModel.current.resetModel();
+    console.log('[AI Model] Model reset to initial state');
+  }, []);
+
+  const syncAIModelWithDatabase = useCallback(async () => {
+    if (!currentSessionId) return;
+    
+    try {
+      // Sync model performance and state with database
+      const performance = getModelPerformance();
+      console.log('[Database Sync] Syncing AI model performance:', performance);
+      
+      // This would typically save the model state to Supabase
+      // Implementation depends on your database schema
+    } catch (error) {
+      console.error('[Database Sync] Failed to sync AI model:', error);
+    }
+  }, [currentSessionId, getModelPerformance]);
 
   useEffect(() => {
     const autoConfig: AutoTradingConfig = {
@@ -400,7 +525,7 @@ export const useAdvancedTradingSystem = (
     } else {
       console.log(`[Trading Bot] ❌ Signal conditions not met - awaiting better opportunity`);
     }
-  }, [config, getDynamicConfig, portfolio, executeAdvancedSignal]);
+  }, [config, getDynamicConfig, portfolio, executeAdvancedSignal, calculateOrderBookImbalance, calculateDeepOrderBookData, shouldGenerateRecalibratedSignal, createEnhancedTradingSignal]);
 
   const handlePartialExit = useCallback((
     positionId: string,
@@ -474,6 +599,15 @@ export const useAdvancedTradingSystem = (
     return autoTradingEngine.current?.getStatus() || null;
   }, []);
 
+  // Create a simple executeSignalManually function that matches the expected signature
+  const executeSignalManually = useCallback((signal: TradingSignal) => {
+    if (!prediction) {
+      console.warn('[Manual Execution] No prediction available for manual signal execution');
+      return;
+    }
+    executeAdvancedSignal(signal, prediction);
+  }, [executeAdvancedSignal, prediction]);
+
   return {
     portfolio,
     indicators,
@@ -493,6 +627,6 @@ export const useAdvancedTradingSystem = (
     currentSessionId,
     autoTradingStatus: getAutoTradingStatus(),
     managedPositions: positionManager.current?.getAllPositions() || [],
-    executeSignalManually: executeAdvancedSignal
+    executeSignalManually
   };
 };
