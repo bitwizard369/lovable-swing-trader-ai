@@ -142,39 +142,39 @@ export const AdvancedTradingDashboard = ({
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground">RSI (14)</p>
-                  <div className={`font-mono ${indicators.rsi_14 > 70 ? 'text-red-500' : indicators.rsi_14 < 30 ? 'text-green-500' : ''}`}>
-                    {indicators.rsi_14.toFixed(2)}
+                  <div className={`font-mono ${(indicators.rsi_14 || 0) > 70 ? 'text-red-500' : (indicators.rsi_14 || 0) < 30 ? 'text-green-500' : ''}`}>
+                    {(indicators.rsi_14 || 0).toFixed(2)}
                   </div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">MACD</p>
-                  <div className={`font-mono ${indicators.macd > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {indicators.macd.toFixed(4)}
+                  <div className={`font-mono ${(indicators.macd || 0) > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {(indicators.macd || 0).toFixed(4)}
                   </div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">EMA 12</p>
-                  <div className="font-mono">{formatPrice(indicators.ema_12)}</div>
+                  <div className="font-mono">{formatPrice(indicators.ema_12 || 0)}</div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">EMA 26</p>
-                  <div className="font-mono">{formatPrice(indicators.ema_26)}</div>
+                  <div className="font-mono">{formatPrice(indicators.ema_26 || 0)}</div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Bollinger Upper</p>
-                  <div className="font-mono">{formatPrice(indicators.bollinger_upper)}</div>
+                  <div className="font-mono">{formatPrice(indicators.bollinger_upper || 0)}</div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Bollinger Lower</p>
-                  <div className="font-mono">{formatPrice(indicators.bollinger_lower)}</div>
+                  <div className="font-mono">{formatPrice(indicators.bollinger_lower || 0)}</div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">ATR</p>
-                  <div className="font-mono">{indicators.atr.toFixed(2)}</div>
+                  <div className="font-mono">{(indicators.atr || 0).toFixed(2)}</div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Trend Strength</p>
-                  <div className="font-mono">{indicators.trend_strength.toFixed(2)}%</div>
+                  <div className="font-mono">{(indicators.trend_strength || 0).toFixed(2)}%</div>
                 </div>
               </div>
             </CardContent>
