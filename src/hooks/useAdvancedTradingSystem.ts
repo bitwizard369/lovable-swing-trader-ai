@@ -146,10 +146,16 @@ export const useAdvancedTradingSystem = (
   }, [bids, asks]);
 
   const calculateDeepOrderBookData = useCallback(() => {
+    const bidDepth = bids.slice(0, 10).map(bid => bid.quantity);
+    const askDepth = asks.slice(0, 10).map(ask => ask.quantity);
+    const spread = asks.length > 0 && bids.length > 0 ? asks[0].price - bids[0].price : 0;
+    const weightedMidPrice = asks.length > 0 && bids.length > 0 ? (bids[0].price + asks[0].price) / 2 : 0;
+    
     return {
-      bidDepth: bids.slice(0, 10).reduce((sum, bid) => sum + bid.quantity, 0),
-      askDepth: asks.slice(0, 10).reduce((sum, ask) => sum + ask.quantity, 0),
-      spread: asks.length > 0 && bids.length > 0 ? asks[0].price - bids[0].price : 0
+      bidDepth,
+      askDepth,
+      spread,
+      weightedMidPrice
     };
   }, [bids, asks]);
 
@@ -162,10 +168,12 @@ export const useAdvancedTradingSystem = (
     let adjustedConfig = { ...baseConfig };
     
     if (marketContext) {
-      // Adjust thresholds based on market volatility
-      const volatilityAdjustment = Math.min(marketContext.volatility / 100, 0.5);
-      adjustedConfig.minConfidence = Math.max(0.2, baseConfig.minConfidence - volatilityAdjustment);
-      adjustedConfig.minProbability = Math.max(0.45, baseConfig.minProbability - volatilityAdjustment);
+      // Adjust thresholds based on market volatility regime
+      const volatilityAdjustment = marketContext.volatilityRegime === 'HIGH' ? 0.5 : 
+                                   marketContext.volatilityRegime === 'LOW' ? 0.1 : 0.3;
+      const normalizedVolatility = Math.min(volatilityAdjustment / 100, 0.5);
+      adjustedConfig.minConfidence = Math.max(0.2, baseConfig.minConfidence - normalizedVolatility);
+      adjustedConfig.minProbability = Math.max(0.45, baseConfig.minProbability - normalizedVolatility);
     }
 
     // Apply adaptive or dynamic thresholds if available
@@ -232,11 +240,11 @@ export const useAdvancedTradingSystem = (
   }, [symbol, config, portfolio.availableBalance]);
 
   const getModelPerformance = useCallback(() => {
-    return aiModel.current.getPerformanceMetrics();
+    return aiModel.current.getModelPerformance();
   }, []);
 
   const resetAIModel = useCallback(() => {
-    aiModel.current.resetModel();
+    aiModel.current.resetModelState();
     console.log('[AI Model] Model reset to initial state');
   }, []);
 
