@@ -305,8 +305,6 @@ export class AdvancedTechnicalAnalysis {
     return Math.max(0, Math.min(1, 1 - volatilityPercent / 2)); // Lower volatility = better spread quality
   }
   
-  // ... keep existing code (SMA, EMA, RSI, WilliamsR, BollingerBands, StandardDeviation, etc.)
-  
   private calculateSMA(data: number[], period: number): number {
     if (data.length < period || period <= 0) return data.length > 0 ? data[data.length - 1] : 0;
     const slice = data.slice(-period);
