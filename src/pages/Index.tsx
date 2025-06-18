@@ -153,15 +153,22 @@ const Index = () => {
     };
   }, [isSystemInitialized, persistence.currentSession, tradingSystem, persistence.savePosition, persistence.updatePosition, persistence.closePosition]);
 
-  // Handle market data updates
+  // Handle market data updates - simulate price data from order book
   useEffect(() => {
-    if (isSystemInitialized && latestUpdate && latestUpdate.c) {
-      const price = parseFloat(latestUpdate.c);
-      const volume = parseFloat(latestUpdate.v || '0');
+    if (isSystemInitialized && latestUpdate && orderBook.bids.length > 0 && orderBook.asks.length > 0) {
+      // Calculate mid price from order book
+      const bestBid = orderBook.bids[0]?.price || 0;
+      const bestAsk = orderBook.asks[0]?.price || 0;
+      const midPrice = (bestBid + bestAsk) / 2;
       
-      tradingSystem.updatePrice(price, volume);
+      // Simulate volume (since depth updates don't contain ticker volume)
+      const volume = Math.random() * 1000;
+      
+      if (midPrice > 0) {
+        tradingSystem.updatePrice(midPrice, volume);
+      }
     }
-  }, [latestUpdate, isSystemInitialized, tradingSystem.updatePrice]);
+  }, [latestUpdate, orderBook, isSystemInitialized, tradingSystem.updatePrice]);
 
   // Show loading state
   if (!persistence.isAuthenticated) {

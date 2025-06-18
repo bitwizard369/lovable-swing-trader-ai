@@ -1,8 +1,19 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Portfolio, Position, MarketContext, TechnicalIndicators } from '@/types/trading';
 import { advancedTechnicalAnalysis } from '@/services/advancedTechnicalAnalysis';
-import { AIModel } from '@/services/aiPredictionModel';
-import { useTradingSessionPersistence } from './useTradingSessionPersistence';
+
+// Mock AI Model class since the actual one isn't available
+class AIModel {
+  async predict(marketContext: MarketContext, indicators: TechnicalIndicators) {
+    return {
+      direction: indicators.rsi_14 > 70 ? 'DOWN' : indicators.rsi_14 < 30 ? 'UP' : 'NEUTRAL',
+      confidence: Math.random() * 0.5 + 0.5,
+      targetPrice: 0,
+      timeHorizon: '1h'
+    };
+  }
+}
 
 interface TradingConfig {
   symbol: string;
@@ -179,7 +190,9 @@ export const useAdvancedTradingSystem = (config: TradingConfig) => {
       .filter(p => p.status === 'OPEN')
       .reduce((sum, p) => sum + p.unrealizedPnL, 0);
 
-    const newEquity = portfolioState.baseCapital + portfolioState.totalPnL + totalUnrealizedPnL;
+    const newTotalPnL = portfolioState.totalPnL;
+    const newAvailableBalance = portfolioState.availableBalance;
+    const newEquity = portfolioState.baseCapital + newTotalPnL + totalUnrealizedPnL;
 
     setPortfolioState(prev => ({
       ...prev,
@@ -247,7 +260,13 @@ export const useAdvancedTradingSystem = (config: TradingConfig) => {
     const marketContext = {
       trend: indicators.macd > 0 ? 'Uptrend' : 'Downtrend',
       volatility: indicators.atr,
-      momentum: indicators.rsi
+      momentum: indicators.rsi_14,
+      volatilityRegime: 'MEDIUM' as const,
+      marketRegime: 'SIDEWAYS_QUIET' as const,
+      marketHour: 'NEW_YORK' as const,
+      newsImpact: 'LOW' as const,
+      liquidityScore: 0.5,
+      spreadQuality: 0.8
     };
     setCurrentMarketContext(marketContext);
 
@@ -276,10 +295,10 @@ export const useAdvancedTradingSystem = (config: TradingConfig) => {
       const { indicators, marketContext } = await analyzeMarket(currentPrice, currentVolume);
 
       // Basic signal logic
-      if (indicators.rsi > 70) {
+      if (indicators.rsi_14 > 70) {
         setLatestSignal({ action: 'SELL', price: currentPrice, reasoning: 'RSI Overbought' });
         setSignals(prev => [...prev, { action: 'SELL', price: currentPrice, reasoning: 'RSI Overbought' }]);
-      } else if (indicators.rsi < 30) {
+      } else if (indicators.rsi_14 < 30) {
         setLatestSignal({ action: 'BUY', price: currentPrice, reasoning: 'RSI Oversold' });
         setSignals(prev => [...prev, { action: 'BUY', price: currentPrice, reasoning: 'RSI Oversold' }]);
       } else {

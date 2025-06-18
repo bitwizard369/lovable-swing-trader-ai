@@ -1,3 +1,4 @@
+
 export interface Position {
   id: string;
   symbol: string;
@@ -19,6 +20,44 @@ export interface Portfolio {
   totalPnL: number;
   dayPnL: number;
   equity: number;
+}
+
+export interface TechnicalIndicators {
+  sma_9: number;
+  sma_21: number;
+  ema_12: number;
+  ema_26: number;
+  macd: number;
+  macd_signal: number;
+  macd_histogram: number;
+  rsi_14: number;
+  stoch_k: number;
+  stoch_d: number;
+  williams_r: number;
+  bollinger_upper: number;
+  bollinger_middle: number;
+  bollinger_lower: number;
+  atr: number;
+  volume_sma: number;
+  volume_ratio: number;
+  vwap: number;
+  support_level: number;
+  resistance_level: number;
+  trend_strength: number;
+  orderbook_pressure: number;
+  rsi?: number; // Legacy support
+}
+
+export interface MarketContext {
+  volatilityRegime: 'LOW' | 'MEDIUM' | 'HIGH';
+  marketRegime: 'STRONG_BULL' | 'WEAK_BULL' | 'STRONG_BEAR' | 'WEAK_BEAR' | 'SIDEWAYS_VOLATILE' | 'SIDEWAYS_QUIET';
+  marketHour: 'LONDON' | 'NEW_YORK' | 'ASIA' | 'OVERLAP' | 'LOW_LIQUIDITY';
+  newsImpact: 'HIGH' | 'MEDIUM' | 'LOW';
+  liquidityScore: number;
+  spreadQuality: number;
+  trend?: string; // Legacy support
+  volatility?: number; // Legacy support
+  momentum?: number; // Legacy support
 }
 
 export interface TradingSignal {
