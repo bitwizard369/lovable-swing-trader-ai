@@ -15,8 +15,11 @@ export interface AutoTradingConfig {
 export class AutoTradingEngine {
   private config: AutoTradingConfig;
   private dailyPnL: number = 0;
+  private dailyProfitsLocked: number = 0;
   private isEmergencyStopped: boolean = false;
   private executedToday: number = 0;
+  private dailyWins: number = 0;
+  private dailyTrades: number = 0;
 
   constructor(config: AutoTradingConfig) {
     this.config = config;
@@ -30,13 +33,30 @@ export class AutoTradingEngine {
     
     if (lastReset !== today) {
       this.dailyPnL = 0;
+      this.dailyProfitsLocked = 0;
       this.executedToday = 0;
+      this.dailyWins = 0;
+      this.dailyTrades = 0;
       localStorage.setItem('lastDailyReset', today);
+      console.log('[Auto Trading] 🔄 Daily counters reset for new trading day');
     }
   }
 
-  updateDailyPnL(pnl: number) {
+  updateDailyPnL(pnl: number, isWin: boolean = false, profitsLocked: number = 0) {
     this.dailyPnL += pnl;
+    this.dailyTrades++;
+    
+    if (profitsLocked > 0) {
+      this.dailyProfitsLocked += profitsLocked;
+      console.log(`[Auto Trading] 🔒 Daily profits locked: ${this.dailyProfitsLocked.toFixed(2)} (+${profitsLocked.toFixed(2)})`);
+    }
+    
+    if (isWin) {
+      this.dailyWins++;
+    }
+    
+    const currentWinRate = this.dailyTrades > 0 ? (this.dailyWins / this.dailyTrades) * 100 : 0;
+    console.log(`[Auto Trading] 📊 Daily stats - P&L: ${this.dailyPnL.toFixed(2)}, Locked: ${this.dailyProfitsLocked.toFixed(2)}, Win Rate: ${currentWinRate.toFixed(1)}% (${this.dailyWins}/${this.dailyTrades})`);
     
     if (this.config.emergencyStopEnabled && this.dailyPnL <= -this.config.maxDailyLoss) {
       this.triggerEmergencyStop();
@@ -45,7 +65,7 @@ export class AutoTradingEngine {
 
   private triggerEmergencyStop() {
     this.isEmergencyStopped = true;
-    console.error('[Auto Trading] 🚨 EMERGENCY STOP TRIGGERED - Daily loss limit exceeded');
+    console.error(`[Auto Trading] 🚨 EMERGENCY STOP TRIGGERED - Daily loss: ${this.dailyPnL.toFixed(2)}, Locked profits: ${this.dailyProfitsLocked.toFixed(2)}`);
   }
 
   canExecuteTrade(
@@ -75,9 +95,10 @@ export class AutoTradingEngine {
 
     const positionValue = signal.quantity * signal.price;
     if (positionValue > availableBalance * 0.95) {
-      return { canExecute: false, reason: 'Insufficient balance' };
+      return { canExecute: false, reason: 'Insufficient balance for dynamic position size' };
     }
 
+    console.log(`[Auto Trading] ✅ Trade validation passed - Position value: ${positionValue.toFixed(2)}, Available: ${availableBalance.toFixed(2)}`);
     return { canExecute: true };
   }
 
@@ -87,7 +108,7 @@ export class AutoTradingEngine {
     executePositionCallback: (signal: TradingSignal, prediction: PredictionOutput) => Promise<Position | null>
   ): Promise<{ success: boolean; position?: Position; error?: string }> {
     try {
-      console.log(`[Auto Trading] 🚀 Executing ${signal.action} signal for ${signal.symbol}`);
+      console.log(`[Auto Trading] 🚀 Executing ${signal.action} signal for ${signal.symbol} - Size: ${signal.quantity.toFixed(6)}`);
       
       if (this.config.dryRunMode) {
         console.log('[Auto Trading] 📝 DRY RUN MODE - Signal would be executed:', signal);
@@ -98,7 +119,7 @@ export class AutoTradingEngine {
       
       if (position) {
         this.executedToday++;
-        console.log(`[Auto Trading] ✅ Successfully executed trade: ${position.id}`);
+        console.log(`[Auto Trading] ✅ Successfully executed trade: ${position.id} with enhanced profit locking`);
         return { success: true, position };
       } else {
         return { success: false, error: 'Failed to create position' };
@@ -110,21 +131,28 @@ export class AutoTradingEngine {
   }
 
   getStatus() {
+    const currentWinRate = this.dailyTrades > 0 ? (this.dailyWins / this.dailyTrades) * 100 : 0;
+    
     return {
       enabled: this.config.enabled,
       emergencyStopped: this.isEmergencyStopped,
       dailyPnL: this.dailyPnL,
+      dailyProfitsLocked: this.dailyProfitsLocked,
       executedToday: this.executedToday,
+      dailyWins: this.dailyWins,
+      dailyTrades: this.dailyTrades,
+      dailyWinRate: currentWinRate,
       dryRunMode: this.config.dryRunMode
     };
   }
 
   updateConfig(newConfig: Partial<AutoTradingConfig>) {
     this.config = { ...this.config, ...newConfig };
+    console.log('[Auto Trading] ⚙️ Configuration updated with profit locking support');
   }
 
   resetEmergencyStop() {
     this.isEmergencyStopped = false;
-    console.log('[Auto Trading] ✅ Emergency stop reset');
+    console.log('[Auto Trading] ✅ Emergency stop reset - Profit locking system remains active');
   }
 }

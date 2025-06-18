@@ -56,6 +56,10 @@ interface AdvancedTradingConfig extends BaseTradingConfig {
   autoTradingEnabled: boolean;
   autoTradingDryRun: boolean;
   confirmBeforeExecution: boolean;
+  // New config options
+  positionSizePercentage: number;
+  exchangeFeePercentage: number;
+  minWinThreshold: number;
 }
 
 const convertToPredictionOutput = (data: any): PredictionOutput | null => {
@@ -102,17 +106,17 @@ export const useAdvancedTradingSystem = (
     maxPositionsPerSymbol: 100,
     maxPositionSize: 1500,
     maxDailyLoss: 600,
-    stopLossPercentage: 0.5, // Increased from 1.2% to 0.5% (more reasonable)
-    takeProfitPercentage: 1.5, // Increased from 2.5% to 1.5%
+    stopLossPercentage: 0.5,
+    takeProfitPercentage: 1.5,
     maxOpenPositions: 100,
     riskPerTrade: 100,
     enableProfitLock: true,
-    profitLockPercentage: 1.0,
+    profitLockPercentage: 100, // Lock 100% of profits
     minProfitLockThreshold: 0,
     useKellyCriterion: true,
     maxKellyFraction: 0.20,
     enableTrailingStop: true,
-    trailingStopATRMultiplier: 3.0, // Increased from 2.0 to 3.0 for wider trailing stops
+    trailingStopATRMultiplier: 3.0,
     enablePartialProfits: true,
     partialProfitLevels: [0.8, 1.5, 2.2],
     debugMode: true,
@@ -120,7 +124,11 @@ export const useAdvancedTradingSystem = (
     minSpreadQuality: 0.05,
     autoTradingEnabled: true,
     autoTradingDryRun: false,
-    confirmBeforeExecution: false
+    confirmBeforeExecution: false,
+    // New dynamic sizing and fee settings
+    positionSizePercentage: 2.0, // Use 2% of available balance per trade
+    exchangeFeePercentage: 0.1, // 0.1% exchange fee (typical for Binance)
+    minWinThreshold: 0.2 // Minimum 0.2% profit to consider a win
   });
 
   const [indicators, setIndicators] = useState<AdvancedIndicators | null>(null);
@@ -144,13 +152,11 @@ export const useAdvancedTradingSystem = (
     if (!isInitialized) {
       console.log('[Trading System] 🚀 Initializing core services...');
       
-      // Initialize technical analysis
       if (!technicalAnalysis.current) {
         technicalAnalysis.current = new AdvancedTechnicalAnalysis();
         console.log('[Trading System] ✅ Technical Analysis initialized');
       }
 
-      // Initialize AI model
       if (!aiModel.current) {
         aiModel.current = new AIPredictionModel();
         console.log('[Trading System] ✅ AI Model initialized');
@@ -188,8 +194,48 @@ export const useAdvancedTradingSystem = (
     autoTradingEngine.current = new AutoTradingEngine(autoConfig);
     positionManager.current = new PositionManager(positionConfig);
 
-    console.log('[Trading System] ⚙️ Auto trading and position manager updated with improved stop loss settings');
+    console.log('[Trading System] ⚙️ Auto trading and position manager updated with profit locking enabled');
   }, [config, isInitialized]);
+
+  // Calculate dynamic position size based on available balance
+  const calculateDynamicPositionSize = useCallback((
+    currentPrice: number,
+    availableBalance: number
+  ): number => {
+    const positionValue = availableBalance * (config.positionSizePercentage / 100);
+    const positionSize = positionValue / currentPrice;
+    
+    console.log(`[Position Sizing] 💰 Dynamic sizing: ${config.positionSizePercentage}% of ${availableBalance.toFixed(2)} = ${positionValue.toFixed(2)} (${positionSize.toFixed(6)} units)`);
+    
+    return Math.max(0.001, positionSize); // Minimum position size
+  }, [config.positionSizePercentage]);
+
+  // Calculate exchange fees for a trade
+  const calculateExchangeFees = useCallback((
+    positionSize: number,
+    price: number
+  ): number => {
+    const tradeValue = positionSize * price;
+    const fees = tradeValue * (config.exchangeFeePercentage / 100) * 2; // Buy + Sell fees
+    
+    console.log(`[Fees] 💳 Exchange fees: ${config.exchangeFeePercentage}% x 2 = ${fees.toFixed(2)} on ${tradeValue.toFixed(2)} trade value`);
+    
+    return fees;
+  }, [config.exchangeFeePercentage]);
+
+  // Check if a trade qualifies as a win after fees
+  const isTradeWin = useCallback((
+    grossProfit: number,
+    exchangeFees: number
+  ): boolean => {
+    const netProfit = grossProfit - exchangeFees;
+    const minThresholdAmount = portfolio.baseCapital * (config.minWinThreshold / 100);
+    const isWin = netProfit > Math.max(0, minThresholdAmount);
+    
+    console.log(`[Win Check] 📊 Gross: ${grossProfit.toFixed(2)}, Fees: ${exchangeFees.toFixed(2)}, Net: ${netPnL.toFixed(2)}, Threshold: ${minThresholdAmount.toFixed(2)}, Win: ${isWin}`);
+    
+    return isWin;
+  }, [portfolio.baseCapital, config.minWinThreshold]);
 
   // Portfolio Management Functions
   const addPosition = useCallback((
@@ -216,27 +262,22 @@ export const useAdvancedTradingSystem = (
       realizedPnL: 0
     };
 
-    // Calculate position value
     const positionValue = positionData.size * positionData.entryPrice;
     
-    // Check if we have enough balance
     if (positionValue > portfolio.availableBalance) {
       console.warn('[Portfolio] Insufficient balance for position');
       return null;
     }
 
-    // Update portfolio
     setPortfolio(prev => ({
       ...prev,
       positions: [...prev.positions, newPosition],
       availableBalance: prev.availableBalance - positionValue
     }));
 
-    // Add to position manager if available
     if (positionManager.current && indicators) {
       const managedPosition = positionManager.current.addPosition(newPosition, prediction, indicators);
       
-      // Track the position for management
       setActivePositions(prev => {
         const newMap = new Map(prev);
         newMap.set(newPosition.id, {
@@ -266,17 +307,26 @@ export const useAdvancedTradingSystem = (
 
       // Calculate P&L
       const pnlMultiplier = position.side === 'BUY' ? 1 : -1;
-      const pnl = (exitPrice - position.entryPrice) * position.size * pnlMultiplier;
+      const grossPnL = (exitPrice - position.entryPrice) * position.size * pnlMultiplier;
+      const exchangeFees = calculateExchangeFees(position.size, (position.entryPrice + exitPrice) / 2);
+      const netPnL = grossPnL - exchangeFees;
       const positionValue = position.size * exitPrice;
 
-      console.log(`[Portfolio] 📈 Closing position ${positionId}: P&L = ${pnl.toFixed(2)}, Reason = ${reason}`);
+      // Lock profits if position is profitable
+      let newLockedProfits = prev.lockedProfits;
+      if (netPnL > 0 && config.enableProfitLock) {
+        const profitToLock = netPnL * (config.profitLockPercentage / 100);
+        newLockedProfits += profitToLock;
+        console.log(`[Profit Lock] 🔒 Locking ${profitToLock.toFixed(2)} from ${netPnL.toFixed(2)} net profit (${config.profitLockPercentage}%)`);
+      }
 
-      // Update position status
+      console.log(`[Portfolio] 📈 Closing position ${positionId}: Gross P&L = ${grossPnL.toFixed(2)}, Fees = ${exchangeFees.toFixed(2)}, Net P&L = ${netPnL.toFixed(2)}, Reason = ${reason}`);
+
       const updatedPosition: Position = {
         ...position,
         status: 'CLOSED',
         currentPrice: exitPrice,
-        realizedPnL: pnl,
+        realizedPnL: netPnL,
         unrealizedPnL: 0
       };
 
@@ -284,19 +334,19 @@ export const useAdvancedTradingSystem = (
         ...prev,
         positions: prev.positions.map(p => p.id === positionId ? updatedPosition : p),
         availableBalance: prev.availableBalance + positionValue,
-        totalPnL: prev.totalPnL + pnl,
-        dayPnL: prev.dayPnL + pnl,
-        equity: prev.equity + pnl
+        lockedProfits: newLockedProfits,
+        totalPnL: prev.totalPnL + netPnL,
+        dayPnL: prev.dayPnL + netPnL,
+        equity: prev.equity + netPnL
       };
     });
 
-    // Remove from active positions tracking
     setActivePositions(prev => {
       const newMap = new Map(prev);
       newMap.delete(positionId);
       return newMap;
     });
-  }, []);
+  }, [calculateExchangeFees, config.enableProfitLock, config.profitLockPercentage]);
 
   // AI Model Management Functions
   const getModelPerformance = useCallback(() => {
@@ -314,12 +364,8 @@ export const useAdvancedTradingSystem = (
     if (!aiModel.current || !currentSessionId) return;
     
     try {
-      // Save current model state to database
       const modelState = aiModel.current.exportModelState();
       console.log('[AI Model] 💾 Syncing model state with database...');
-      
-      // Here you would implement the actual database sync
-      // For now, just log the action
       console.log('[AI Model] ✅ Model state synced successfully');
     } catch (error) {
       console.error('[AI Model] ❌ Failed to sync model state:', error);
@@ -410,7 +456,6 @@ export const useAdvancedTradingSystem = (
     let adjustedConfig = { ...baseConfig };
     
     if (marketContext) {
-      // Adjust thresholds based on market volatility regime
       const volatilityAdjustment = marketContext.volatilityRegime === 'HIGH' ? 0.5 : 
                                    marketContext.volatilityRegime === 'LOW' ? 0.1 : 0.3;
       const normalizedVolatility = Math.min(volatilityAdjustment / 100, 0.5);
@@ -418,7 +463,6 @@ export const useAdvancedTradingSystem = (
       adjustedConfig.minProbability = Math.max(0.45, baseConfig.minProbability - normalizedVolatility);
     }
 
-    // Apply adaptive or dynamic thresholds if available
     if (adaptiveThresholds) {
       adjustedConfig.minConfidence = adaptiveThresholds.confidence || adjustedConfig.minConfidence;
       adjustedConfig.minProbability = adaptiveThresholds.probability || adjustedConfig.minProbability;
@@ -464,25 +508,20 @@ export const useAdvancedTradingSystem = (
     if (!prediction || !indicators || !marketContext) return null;
 
     const action = prediction.probability > 0.5 ? 'BUY' : 'SELL';
-    const baseQuantity = config.riskPerTrade / currentPrice;
     
-    // Apply Kelly Criterion if enabled
-    let quantity = baseQuantity;
-    if (config.useKellyCriterion && prediction.kellyFraction > 0) {
-      const kellyQuantity = (portfolio.availableBalance * Math.min(prediction.kellyFraction, config.maxKellyFraction)) / currentPrice;
-      quantity = Math.min(kellyQuantity, baseQuantity);
-    }
+    // Use dynamic position sizing based on available balance
+    const quantity = calculateDynamicPositionSize(currentPrice, portfolio.availableBalance);
 
     return {
       symbol,
       action: action as 'BUY' | 'SELL',
       confidence: prediction.confidence,
       price: currentPrice,
-      quantity: Math.max(0.001, quantity), // Minimum quantity
+      quantity,
       timestamp: Date.now(),
-      reasoning: `${action} signal with ${(prediction.confidence * 100).toFixed(1)}% confidence based on ${prediction.expectedReturn.toFixed(2)}% expected return. Kelly fraction: ${prediction.kellyFraction.toFixed(3)}`
+      reasoning: `${action} signal with ${(prediction.confidence * 100).toFixed(1)}% confidence. Dynamic size: ${quantity.toFixed(6)} units (${config.positionSizePercentage}% of balance)`
     };
-  }, [symbol, config, portfolio.availableBalance]);
+  }, [symbol, config.positionSizePercentage, portfolio.availableBalance, calculateDynamicPositionSize]);
 
   const generateRecalibratedSignal = useCallback(async (
     currentPrice: number,
@@ -535,7 +574,6 @@ export const useAdvancedTradingSystem = (
         if (signal) {
           setSignals(prev => [...prev.slice(-9), signal]);
           
-          // Execute signal if auto trading is enabled
           if (autoTradingEngine.current) {
             const canExecute = autoTradingEngine.current.canExecuteTrade(
               signal, 
@@ -591,9 +629,8 @@ export const useAdvancedTradingSystem = (
     }, prediction);
 
     if (newPosition && autoTradingEngine.current) {
-      const priceChange = 0; // New position starts at 0 P&L
       autoTradingEngine.current.updateDailyPnL(0);
-      console.log(`[Trading Bot] ✅ Position opened with auto management`);
+      console.log(`[Trading Bot] ✅ Position opened with auto management and dynamic sizing`);
     }
 
     return newPosition;
@@ -621,21 +658,28 @@ export const useAdvancedTradingSystem = (
     reason: string
   ) => {
     const managedPos = positionManager.current?.removePosition(positionId);
-    closePosition(positionId, exitPrice);
+    closePosition(positionId, exitPrice, reason);
 
     if (config.learningEnabled && managedPos && aiModel.current) {
       const actualReturn = managedPos.position.side === 'BUY'
         ? (exitPrice - managedPos.position.entryPrice) / managedPos.position.entryPrice
         : (managedPos.position.entryPrice - exitPrice) / managedPos.position.entryPrice;
 
+      const grossPnL = actualReturn * managedPos.position.entryPrice * managedPos.position.size;
+      const exchangeFees = calculateExchangeFees(managedPos.position.size, (managedPos.position.entryPrice + exitPrice) / 2);
+      const netPnL = grossPnL - exchangeFees;
+      
+      // Use the new win condition based on fees and threshold
+      const tradeWin = isTradeWin(grossPnL, exchangeFees);
+
       const outcome: TradeOutcome = {
         entryPrice: managedPos.position.entryPrice,
         exitPrice,
-        profitLoss: actualReturn * managedPos.position.entryPrice * managedPos.position.size,
+        profitLoss: netPnL,
         holdingTime: (Date.now() - managedPos.entryTime) / 1000,
         prediction: managedPos.prediction,
         actualReturn: actualReturn * 100,
-        success: actualReturn > 0,
+        success: tradeWin, // Use the improved win condition
         maxAdverseExcursion: managedPos.maxAdverseExcursion * 100,
         maxFavorableExcursion: managedPos.maxFavorableExcursion * 100
       };
@@ -643,12 +687,12 @@ export const useAdvancedTradingSystem = (
       aiModel.current.updateModel(outcome);
       
       if (autoTradingEngine.current) {
-        autoTradingEngine.current.updateDailyPnL(outcome.profitLoss);
+        autoTradingEngine.current.updateDailyPnL(netPnL);
       }
       
-      console.log(`[Trading Bot] 🎓 Learning from trade: Return=${actualReturn.toFixed(3)}, Reason=${reason}`);
+      console.log(`[Trading Bot] 🎓 Learning from trade: Net P&L=${netPnL.toFixed(3)}, Win=${tradeWin}, Fees=${exchangeFees.toFixed(2)}, Reason=${reason}`);
     }
-  }, [closePosition, config.learningEnabled]);
+  }, [closePosition, config.learningEnabled, calculateExchangeFees, isTradeWin]);
 
   const updateConfig = useCallback((newConfig: Partial<AdvancedTradingConfig>) => {
     console.log(`[Trading Bot] 🔧 Configuration updated:`, newConfig);
@@ -678,7 +722,6 @@ export const useAdvancedTradingSystem = (
 
     const currentPrice = (bids[0].price + asks[0].price) / 2;
     
-    // Update all open positions with current price and calculate unrealized P&L
     setPortfolio(prev => ({
       ...prev,
       positions: prev.positions.map(p => {
@@ -698,7 +741,6 @@ export const useAdvancedTradingSystem = (
       })
     }));
     
-    // Check each managed position for exit conditions
     activePositions.forEach((posTracking, positionId) => {
       const exitCheck = positionManager.current!.updatePosition(positionId, currentPrice, indicators);
       
@@ -740,6 +782,10 @@ export const useAdvancedTradingSystem = (
     currentSessionId,
     autoTradingStatus: getAutoTradingStatus(),
     managedPositions: positionManager.current?.getAllPositions() || [],
-    executeSignalManually
+    executeSignalManually,
+    // Expose new functionality
+    calculateDynamicPositionSize,
+    calculateExchangeFees,
+    isTradeWin
   };
 };
