@@ -301,12 +301,12 @@ export const useAdvancedTradingSystem = (
   // AI Model Management Functions
   const getModelPerformance = useCallback(() => {
     if (!aiModel.current) return null;
-    return aiModel.current.getPerformanceMetrics();
+    return aiModel.current.getModelPerformance();
   }, []);
 
   const resetAIModel = useCallback(() => {
     if (!aiModel.current) return;
-    aiModel.current.resetModel();
+    aiModel.current.resetModelState();
     console.log('[AI Model] 🔄 Model reset completed');
   }, []);
 

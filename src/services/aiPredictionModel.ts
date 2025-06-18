@@ -148,6 +148,20 @@ export class AIPredictionModel {
     console.log('[AI Model] ✅ Model state reset completed');
   }
 
+  // Export current model state for persistence
+  exportModelState(): any {
+    return {
+      trainingData: this.trainingData,
+      modelWeights: { ...this.modelWeights },
+      performanceMetrics: { ...this.performanceMetrics },
+      adaptiveThresholds: { ...this.adaptiveThresholds },
+      signalMetrics: { ...this.signalMetrics },
+      marketOpportunityState: { ...this.marketOpportunityState },
+      exportedAt: new Date().toISOString(),
+      version: '1.0'
+    };
+  }
+
   // Enhanced bulk training data loading
   loadTrainingData(outcomes: TradeOutcome[]): void {
     console.log(`[AI Model] 📚 Loading ${outcomes.length} training outcomes`);
