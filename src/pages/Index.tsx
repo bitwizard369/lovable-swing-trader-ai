@@ -1,250 +1,263 @@
 
-import { useState, useEffect, useCallback } from "react";
-import { EnhancedDashboard } from "@/components/EnhancedDashboard";
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
 import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
+import { WebSocketStatus } from "@/components/WebSocketStatus";
+import { OrderBook } from "@/components/OrderBook";
+import { Portfolio } from "@/components/Portfolio";
+import { TradingSignals } from "@/components/TradingSignals";
+import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
+import { SystemHealthMonitor } from "@/components/SystemHealthMonitor";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTradingSessionPersistence } from "@/hooks/useTradingSessionPersistence";
-import { useToast } from "@/components/ui/use-toast";
-import { Portfolio } from "@/types/trading";
+import { useEffect } from "react";
 
 const Index = () => {
-  const { toast } = useToast();
-  const [isSystemInitialized, setIsSystemInitialized] = useState(false);
-  const [systemError, setSystemError] = useState<string | null>(null);
-
-  // WebSocket connection
   const {
     isConnected,
     orderBook,
-    latestUpdate,
     apiHealthy,
+    latestUpdate,
     connect,
     disconnect,
-    checkAPIHealth,
+    checkAPIHealth
   } = useBinanceWebSocket('btcusdt');
 
-  // Database persistence with enhanced config
-  const persistence = useTradingSessionPersistence({
+  const {
+    portfolio,
+    indicators: advancedIndicators,
+    marketContext,
+    prediction,
+    activePositions,
+    config: tradingConfig,
+    updateConfig,
+    getModelPerformance,
+    // Data for classic view now comes from the advanced hook
+    signals,
+    latestSignal,
+    basicIndicators,
+  } = useAdvancedTradingSystem(
+    'btcusdt',
+    orderBook.bids,
+    orderBook.asks
+  );
+
+  // Enhanced session persistence with health monitoring
+  const {
+    systemHealth,
+    cleanupSession,
+    resetSession,
+    isRecovering
+  } = useTradingSessionPersistence({
     symbol: 'btcusdt',
     autoSave: true,
     saveInterval: 5000,
     snapshotInterval: 30000,
-    healthCheckInterval: 60000, // Check health every minute
+    healthCheckInterval: 60000 // Check health every minute
   });
 
-  // Trading system
-  const tradingSystem = useAdvancedTradingSystem({
-    symbol: 'btcusdt',
-    initialBalance: 10000,
-    maxPositions: 100,
-    riskPerTrade: 0.02,
-    stopLossPercent: 0.02,
-    takeProfitPercent: 0.04,
-    trailingStopPercent: 0.015,
-    persistence,
-  });
-
-  // Initialize system with proper error handling
-  const initializeSystem = useCallback(async () => {
-    if (!persistence.isAuthenticated) {
-      console.log('[System] Waiting for authentication...');
-      return;
-    }
-
-    try {
-      setSystemError(null);
-      console.log('[System] 🚀 Initializing trading system with database persistence...');
-
-      // Initialize trading session with database
-      const session = await persistence.initializeSession(
-        tradingSystem.portfolio,
-        tradingSystem.config
-      );
-
-      if (session) {
-        console.log(`[System] ✅ Session initialized: ${session.id}`);
-        
-        // If we have recovered data, apply it to the trading system
-        if (persistence.recoveredData) {
-          console.log('[System] 🔄 Applying recovered portfolio data...');
-          
-          // Force the trading system to use the recovered portfolio
-          tradingSystem.setPortfolio(persistence.recoveredData.portfolio);
-          
-          // Sync positions with recovered data
-          persistence.recoveredData.positions.forEach(position => {
-            tradingSystem.syncPosition(position);
-          });
-
-          toast({
-            title: 'Portfolio Recovered',
-            description: `Loaded ${persistence.recoveredData.positions.length} positions with equity: $${persistence.recoveredData.portfolio.equity.toFixed(2)}`,
-            variant: 'default'
-          });
-        } else {
-          console.log('[System] 📊 Starting with fresh portfolio state');
-        }
-
-        setIsSystemInitialized(true);
-        
-        // Connect to WebSocket after system is ready
-        if (!isConnected) {
-          connect();
-        }
-
-        console.log('[System] ✅ System initialization completed successfully');
-      } else {
-        throw new Error('Failed to initialize trading session');
-      }
-    } catch (error) {
-      console.error('[System] ❌ Failed to initialize system:', error);
-      setSystemError(error instanceof Error ? error.message : 'Unknown initialization error');
-      
-      toast({
-        title: 'System Initialization Failed',
-        description: 'Failed to initialize trading system with database',
-        variant: 'destructive'
-      });
-    }
-  }, [persistence.isAuthenticated, persistence.initializeSession, persistence.recoveredData, tradingSystem, connect, isConnected, toast]);
-
-  // Initialize system when authentication is ready
-  useEffect(() => {
-    if (persistence.isAuthenticated && !isSystemInitialized && !persistence.isRecovering) {
-      initializeSystem();
-    }
-  }, [persistence.isAuthenticated, isSystemInitialized, persistence.isRecovering, initializeSystem]);
-
-  // Auto-save portfolio state to database
-  useEffect(() => {
-    if (isSystemInitialized && persistence.currentSession) {
-      persistence.savePortfolioState(tradingSystem.portfolio);
-    }
-  }, [tradingSystem.portfolio, isSystemInitialized, persistence.currentSession, persistence.savePortfolioState]);
-
-  // Handle position lifecycle events with database sync
-  useEffect(() => {
-    if (!isSystemInitialized || !persistence.currentSession) return;
-
-    const handlePositionOpened = (position: any) => {
-      console.log('[System] 📍 Syncing new position to database:', position.id);
-      persistence.savePosition(position);
-    };
-
-    const handlePositionUpdated = (positionId: string, updates: any) => {
-      console.log('[System] 📊 Syncing position update to database:', positionId);
-      persistence.updatePosition(positionId, updates);
-    };
-
-    const handlePositionClosed = (positionId: string, exitPrice: number, realizedPnL: number) => {
-      console.log('[System] 🔒 Syncing position closure to database:', positionId);
-      persistence.closePosition(positionId, exitPrice, realizedPnL);
-    };
-
-    // Subscribe to trading system events
-    tradingSystem.on('positionOpened', handlePositionOpened);
-    tradingSystem.on('positionUpdated', handlePositionUpdated);
-    tradingSystem.on('positionClosed', handlePositionClosed);
-
-    return () => {
-      tradingSystem.off('positionOpened', handlePositionOpened);
-      tradingSystem.off('positionUpdated', handlePositionUpdated);
-      tradingSystem.off('positionClosed', handlePositionClosed);
-    };
-  }, [isSystemInitialized, persistence.currentSession, tradingSystem, persistence.savePosition, persistence.updatePosition, persistence.closePosition]);
-
-  // Handle market data updates - simulate price data from order book
-  useEffect(() => {
-    if (isSystemInitialized && latestUpdate && orderBook.bids.length > 0 && orderBook.asks.length > 0) {
-      // Calculate mid price from order book
-      const bestBid = orderBook.bids[0]?.price || 0;
-      const bestAsk = orderBook.asks[0]?.price || 0;
-      const midPrice = (bestBid + bestAsk) / 2;
-      
-      // Simulate volume (since depth updates don't contain ticker volume)
-      const volume = Math.random() * 1000;
-      
-      if (midPrice > 0) {
-        tradingSystem.updatePrice(midPrice, volume);
-      }
-    }
-  }, [latestUpdate, orderBook, isSystemInitialized, tradingSystem.updatePrice]);
-
-  // Show loading state
-  if (!persistence.isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="text-2xl font-bold mb-4">AI Trading Bot</div>
-          <div className="text-lg">Please sign in to continue...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (persistence.isRecovering) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="text-2xl font-bold mb-4">Recovering Trading Session...</div>
-          <div className="text-lg">Loading portfolio and position data from database</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (systemError) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="text-2xl font-bold mb-4 text-red-400">System Error</div>
-          <div className="text-lg mb-4">{systemError}</div>
-          <button 
-            onClick={initializeSystem}
-            className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg"
-          >
-            Retry Initialization
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isSystemInitialized) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="text-2xl font-bold mb-4">Initializing Trading System...</div>
-          <div className="text-lg">Setting up database connection and portfolio state</div>
-        </div>
-      </div>
-    );
-  }
+  const modelPerformance = getModelPerformance();
 
   return (
-    <EnhancedDashboard
-      // WebSocket props
-      isConnected={isConnected}
-      orderBook={orderBook}
-      apiHealthy={apiHealthy}
-      latestUpdate={latestUpdate}
-      connect={connect}
-      disconnect={disconnect}
-      checkAPIHealth={checkAPIHealth}
-      
-      // Trading system props
-      portfolio={tradingSystem.portfolio}
-      indicators={tradingSystem.indicators}
-      marketContext={tradingSystem.marketContext}
-      prediction={tradingSystem.prediction}
-      activePositions={tradingSystem.activePositions}
-      config={tradingSystem.config}
-      updateConfig={tradingSystem.updateConfig}
-      getModelPerformance={tradingSystem.getModelPerformance}
-      signals={tradingSystem.signals}
-      latestSignal={tradingSystem.latestSignal}
-      basicIndicators={tradingSystem.basicIndicators}
-    />
+    <div className="min-h-screen bg-background p-4">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold mb-4">AI-Powered HFT Bot</h1>
+          <p className="text-xl text-muted-foreground">Advanced Machine Learning Trading System</p>
+        </div>
+
+        <Tabs defaultValue="advanced" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="advanced">AI Trading</TabsTrigger>
+            <TabsTrigger value="classic">Classic View</TabsTrigger>
+            <TabsTrigger value="analysis">Technical Analysis</TabsTrigger>
+            <TabsTrigger value="system">System Health</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="advanced" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Left column - Status and Portfolio */}
+              <div className="lg:col-span-1 space-y-6">
+                <WebSocketStatus
+                  isConnected={isConnected}
+                  apiHealthy={apiHealthy}
+                  latestUpdate={latestUpdate}
+                  onConnect={connect}
+                  onDisconnect={disconnect}
+                  onCheckHealth={checkAPIHealth}
+                />
+                
+                <Portfolio 
+                  portfolio={portfolio} 
+                  activePositions={activePositions}
+                />
+              </div>
+
+              {/* Right columns - Advanced Trading Dashboard */}
+              <div className="lg:col-span-3">
+                <AdvancedTradingDashboard
+                  indicators={advancedIndicators}
+                  marketContext={marketContext}
+                  prediction={prediction}
+                  modelPerformance={modelPerformance}
+                  onConfigUpdate={updateConfig}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="classic" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Left column - Status and Portfolio */}
+              <div className="lg:col-span-1 space-y-6">
+                <WebSocketStatus
+                  isConnected={isConnected}
+                  apiHealthy={apiHealthy}
+                  latestUpdate={latestUpdate}
+                  onConnect={connect}
+                  onDisconnect={disconnect}
+                  onCheckHealth={checkAPIHealth}
+                />
+                
+                <Portfolio 
+                  portfolio={portfolio} 
+                  activePositions={activePositions}
+                />
+              </div>
+
+              {/* Middle column - Order Book */}
+              <div className="lg:col-span-1">
+                <OrderBook
+                  bids={orderBook.bids}
+                  asks={orderBook.asks}
+                  symbol="btcusdt"
+                  isConnected={isConnected}
+                />
+              </div>
+
+              {/* Right columns - Trading Signals */}
+              <div className="lg:col-span-2">
+                <TradingSignals
+                  signals={signals}
+                  latestSignal={latestSignal}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="analysis" className="space-y-6">
+            {/* Technical Indicators Display */}
+            {basicIndicators && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 border rounded-lg bg-muted/50">
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">RSI</p>
+                  <p className={`font-mono ${basicIndicators.rsi > 70 ? 'text-red-500' : basicIndicators.rsi < 30 ? 'text-green-500' : 'text-foreground'}`}>
+                    {basicIndicators.rsi.toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">EMA Fast</p>
+                  <p className="font-mono">${basicIndicators.ema_fast.toFixed(2)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">EMA Slow</p>
+                  <p className="font-mono">${basicIndicators.ema_slow.toFixed(2)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">MACD</p>
+                  <p className={`font-mono ${basicIndicators.macd > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {basicIndicators.macd.toFixed(4)}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">Signal</p>
+                  <p className="font-mono">{basicIndicators.signal.toFixed(4)}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Advanced Indicators Grid */}
+            {advancedIndicators && (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <div className="p-4 border rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">SMA 9</p>
+                  <p className="font-mono text-sm">${advancedIndicators.sma_9.toFixed(2)}</p>
+                </div>
+                <div className="p-4 border rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">SMA 21</p>
+                  <p className="font-mono text-sm">${advancedIndicators.sma_21.toFixed(2)}</p>
+                </div>
+                <div className="p-4 border rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Stoch %K</p>
+                  <p className="font-mono text-sm">{advancedIndicators.stoch_k.toFixed(1)}</p>
+                </div>
+                <div className="p-4 border rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Williams %R</p>
+                  <p className="font-mono text-sm">{advancedIndicators.williams_r.toFixed(1)}</p>
+                </div>
+                <div className="p-4 border rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">ATR</p>
+                  <p className="font-mono text-sm">{advancedIndicators.atr.toFixed(2)}</p>
+                </div>
+                <div className="p-4 border rounded-lg text-center">
+                  <p className="text-xs text-muted-foreground">Volume Ratio</p>
+                  <p className="font-mono text-sm">{advancedIndicators.volume_ratio.toFixed(2)}</p>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="system" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SystemHealthMonitor
+                healthData={systemHealth}
+                onCleanup={cleanupSession}
+                onReset={resetSession}
+                isLoading={isRecovering}
+              />
+              
+              <div className="space-y-4">
+                <div className="p-4 border rounded-lg">
+                  <h3 className="text-sm font-medium mb-2">System Status</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span>WebSocket:</span>
+                      <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
+                        {isConnected ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>API Health:</span>
+                      <span className={apiHealthy ? 'text-green-600' : 'text-red-600'}>
+                        {apiHealthy ? 'Healthy' : 'Unhealthy'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Active Positions:</span>
+                      <span>{activePositions.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Recovery Mode:</span>
+                      <span className={isRecovering ? 'text-yellow-600' : 'text-green-600'}>
+                        {isRecovering ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {latestUpdate && (
+          <div className="mt-6">
+            <div className="text-center text-sm text-muted-foreground">
+              Last update: {new Date(latestUpdate.E).toLocaleString()} | 
+              Updates: {orderBook.bids.length} bids, {orderBook.asks.length} asks
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

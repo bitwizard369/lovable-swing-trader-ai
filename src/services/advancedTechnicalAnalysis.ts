@@ -50,7 +50,7 @@ export interface OHLCData {
   timestamp: number;
 }
 
-class TechnicalAnalysisEngine {
+export class AdvancedTechnicalAnalysis {
   private priceHistory: number[] = [];
   private volumeHistory: number[] = [];
   private ohlcData: OHLCData[] = [];
@@ -305,6 +305,8 @@ class TechnicalAnalysisEngine {
     return Math.max(0, Math.min(1, 1 - volatilityPercent / 2)); // Lower volatility = better spread quality
   }
   
+  // ... keep existing code (SMA, EMA, RSI, WilliamsR, BollingerBands, StandardDeviation, etc.)
+  
   private calculateSMA(data: number[], period: number): number {
     if (data.length < period || period <= 0) return data.length > 0 ? data[data.length - 1] : 0;
     const slice = data.slice(-period);
@@ -444,49 +446,3 @@ class TechnicalAnalysisEngine {
     return 'LOW_LIQUIDITY';
   }
 }
-
-// Create a singleton instance for the advanced technical analysis
-const technicalAnalysisInstance = new TechnicalAnalysisEngine();
-
-// Export a function that uses the singleton instance
-export const advancedTechnicalAnalysis = async (price: number, volume: number) => {
-  technicalAnalysisInstance.updatePriceData(price, volume);
-  const indicators = technicalAnalysisInstance.calculateAdvancedIndicators();
-  
-  if (!indicators) {
-    // Return basic indicators structure when insufficient data
-    return {
-      sma_9: price,
-      sma_21: price,
-      ema_12: price,
-      ema_26: price,
-      macd: 0,
-      macd_signal: 0,
-      macd_histogram: 0,
-      rsi_14: 50,
-      stoch_k: 50,
-      stoch_d: 50,
-      williams_r: -50,
-      bollinger_upper: price * 1.02,
-      bollinger_middle: price,
-      bollinger_lower: price * 0.98,
-      atr: price * 0.01,
-      volume_sma: volume,
-      volume_ratio: 1,
-      vwap: price,
-      support_level: price * 0.98,
-      resistance_level: price * 1.02,
-      trend_strength: 0,
-      orderbook_pressure: 0,
-      rsi: 50 // Legacy support
-    };
-  }
-  
-  return {
-    ...indicators,
-    rsi: indicators.rsi_14 // Legacy support
-  };
-};
-
-// Export the TechnicalAnalysisEngine class
-export { TechnicalAnalysisEngine };
