@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 import { Position } from '@/types/trading';
 
@@ -71,6 +72,8 @@ export interface SystemHealthCheck {
 class SupabaseTradingService {
   private lastHealthCheck: SystemHealthCheck[] = [];
   private cleanupInProgress = false;
+  private healthCheckErrors = 0;
+  private lastHealthCheckTime = 0;
 
   async createTradingSession(sessionData: Omit<TradingSession, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<TradingSession | null> {
     try {
@@ -192,7 +195,10 @@ class SupabaseTradingService {
 
       if (error) throw error;
 
-      console.log(`[Session] 📍 Position saved: ${position.side} ${position.symbol} at ${position.entryPrice}`);
+      // Reduced logging frequency
+      if (Math.random() < 0.2) { // Only log 20% of position saves
+        console.log(`[Session] 📍 Position saved: ${position.side} ${position.symbol} at ${position.entryPrice}`);
+      }
       return {
         ...data,
         side: data.side as 'BUY' | 'SELL',
@@ -304,7 +310,10 @@ class SupabaseTradingService {
 
       if (error) throw error;
 
-      console.log('[Session] 🧹 System cleanup completed');
+      // Reduced logging frequency
+      if (Math.random() < 0.1) { // Only log 10% of cleanups
+        console.log('[Session] 🧹 System cleanup completed');
+      }
     } catch (error) {
       console.error('Error performing system cleanup:', error);
     } finally {
@@ -327,15 +336,32 @@ class SupabaseTradingService {
   }
 
   async getSystemHealth(): Promise<SystemHealthCheck[]> {
+    // Throttle health checks to prevent excessive database calls
+    const now = Date.now();
+    if (now - this.lastHealthCheckTime < 10000) { // Minimum 10 seconds between checks
+      return this.lastHealthCheck;
+    }
+
     try {
       const { data, error } = await supabase.rpc('trading_system_health_check');
 
       if (error) throw error;
 
       this.lastHealthCheck = data || [];
+      this.lastHealthCheckTime = now;
+      this.healthCheckErrors = 0; // Reset error counter on success
+      
       return this.lastHealthCheck;
     } catch (error) {
+      this.healthCheckErrors++;
       console.error('Error getting system health:', error);
+      
+      // If too many consecutive errors, return cached data
+      if (this.healthCheckErrors > 3) {
+        console.warn('[Health] Too many consecutive errors, returning cached data');
+        return this.lastHealthCheck;
+      }
+      
       return [];
     }
   }
