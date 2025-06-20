@@ -1,20 +1,25 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { tradingService, TradingSession, DatabasePosition } from '@/services/supabaseTradingService';
 import { Portfolio, Position } from '@/types/trading';
 import { supabase } from '@/integrations/supabase/client';
+import { DatabaseCleanupService } from '@/services/databaseCleanupService';
 
 interface SessionPersistenceConfig {
   symbol: string;
   autoSave: boolean;
   saveInterval: number; // milliseconds
   snapshotInterval: number; // milliseconds
+  cleanupInterval?: number; // milliseconds for periodic cleanup
 }
 
 export const useTradingSessionPersistence = (config: SessionPersistenceConfig) => {
   const [currentSession, setCurrentSession] = useState<TradingSession | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<{
+    healthy: boolean;
+    lastCheck: Date | null;
+  }>({ healthy: true, lastCheck: null });
   const [recoveredData, setRecoveredData] = useState<{
     portfolio: Portfolio;
     positions: Position[];
@@ -22,6 +27,7 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
 
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
   const snapshotTimeoutRef = useRef<NodeJS.Timeout>();
+  const cleanupIntervalRef = useRef<NodeJS.Timeout>();
   const lastSaveDataRef = useRef<string>('');
 
   // Check authentication status
@@ -40,6 +46,27 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     return () => subscription.unsubscribe();
   }, []);
 
+  // Periodic system health check and cleanup
+  const performHealthCheck = useCallback(async () => {
+    try {
+      const healthResult = await DatabaseCleanupService.performSystemHealthCheck();
+      setSystemHealth({
+        healthy: healthResult.healthy,
+        lastCheck: new Date()
+      });
+      
+      if (!healthResult.healthy) {
+        console.warn('[Session] ⚠️ System health issues detected, see console for details');
+      }
+    } catch (error) {
+      console.error('[Session] Error during health check:', error);
+      setSystemHealth({
+        healthy: false,
+        lastCheck: new Date()
+      });
+    }
+  }, []);
+
   // Initialize or recover session
   const initializeSession = useCallback(async (initialPortfolio: Portfolio, tradingConfig: any) => {
     if (!isAuthenticated) {
@@ -50,11 +77,18 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     try {
       setIsRecovering(true);
 
+      // Perform initial health check and cleanup
+      console.log('[Session] 🔍 Running initial system health check...');
+      await performHealthCheck();
+
       // Try to get existing active session
       const existingSession = await tradingService.getActiveTradingSession(config.symbol);
       
       if (existingSession) {
         console.log(`[Session] 🔄 Recovering existing session: ${existingSession.id}`);
+        
+        // Clean up any old positions for this session before recovery
+        await DatabaseCleanupService.closeSessionPositions(existingSession.id);
         
         // Recover session data
         const recoveryData = await tradingService.recoverTradingSession(existingSession.id);
@@ -125,9 +159,9 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     } finally {
       setIsRecovering(false);
     }
-  }, [config.symbol, isAuthenticated]);
+  }, [config.symbol, isAuthenticated, performHealthCheck]);
 
-  // Save portfolio state
+  // Save portfolio state with enhanced error handling
   const savePortfolioState = useCallback(async (portfolio: Portfolio) => {
     if (!currentSession || !isAuthenticated) return;
 
@@ -161,9 +195,11 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
         console.log(`[Session] 💾 Portfolio state saved - Equity: ${portfolio.equity.toFixed(2)}`);
       } catch (error) {
         console.error('[Session] Error saving portfolio state:', error);
+        // If save fails, trigger a health check
+        await performHealthCheck();
       }
     }, 1000); // 1 second debounce
-  }, [currentSession, isAuthenticated]);
+  }, [currentSession, isAuthenticated, performHealthCheck]);
 
   // Save position
   const savePosition = useCallback(async (position: Position) => {
@@ -219,27 +255,34 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }
   }, [currentSession, isAuthenticated]);
 
-  // Auto-save and snapshot intervals
+  // Auto-save, snapshot, and cleanup intervals
   useEffect(() => {
     if (!config.autoSave || !currentSession) return;
 
-    // Auto portfolio snapshots
-    const snapshotInterval = setInterval(() => {
-      // This will be called by the trading system
-    }, config.snapshotInterval);
+    // Set up periodic cleanup (default every 5 minutes)
+    const cleanupInterval = config.cleanupInterval || 300000; // 5 minutes
+    cleanupIntervalRef.current = setInterval(async () => {
+      console.log('[Session] 🧹 Running periodic cleanup...');
+      await performHealthCheck();
+    }, cleanupInterval);
 
     return () => {
-      clearInterval(snapshotInterval);
+      if (cleanupIntervalRef.current) clearInterval(cleanupIntervalRef.current);
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (snapshotTimeoutRef.current) clearTimeout(snapshotTimeoutRef.current);
     };
-  }, [config.autoSave, config.snapshotInterval, currentSession]);
+  }, [config.autoSave, config.cleanupInterval, currentSession, performHealthCheck]);
 
-  // End session
+  // End session with cleanup
   const endSession = useCallback(async () => {
     if (!currentSession) return;
 
     try {
+      // Close all positions for this session before ending
+      console.log(`[Session] 🔒 Closing all positions for session ${currentSession.id}`);
+      await DatabaseCleanupService.closeSessionPositions(currentSession.id);
+      
+      // End the session
       await tradingService.endTradingSession(currentSession.id);
       setCurrentSession(null);
       setRecoveredData(null);
@@ -249,17 +292,26 @@ export const useTradingSessionPersistence = (config: SessionPersistenceConfig) =
     }
   }, [currentSession]);
 
+  // Manual cleanup trigger
+  const triggerEmergencyCleanup = useCallback(async () => {
+    console.log('[Session] 🚨 Triggering emergency cleanup...');
+    return await DatabaseCleanupService.runEmergencyCleanup();
+  }, []);
+
   return {
     currentSession,
     isRecovering,
     isAuthenticated,
     recoveredData,
+    systemHealth,
     initializeSession,
     savePortfolioState,
     savePosition,
     updatePosition,
     saveSignal,
     takePortfolioSnapshot,
-    endSession
+    endSession,
+    triggerEmergencyCleanup,
+    performHealthCheck
   };
 };

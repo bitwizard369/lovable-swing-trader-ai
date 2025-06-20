@@ -5,6 +5,7 @@ import { OrderBook } from "@/components/OrderBook";
 import { Portfolio } from "@/components/Portfolio";
 import { TradingSignals } from "@/components/TradingSignals";
 import { AdvancedTradingDashboard } from "@/components/AdvancedTradingDashboard";
+import { SystemHealthMonitor } from "@/components/SystemHealthMonitor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect } from "react";
 
@@ -57,7 +58,7 @@ const Index = () => {
 
           <TabsContent value="advanced" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Left column - Status and Portfolio */}
+              {/* Left column - Status, Health Monitor and Portfolio */}
               <div className="lg:col-span-1 space-y-6">
                 <WebSocketStatus
                   isConnected={isConnected}
@@ -67,6 +68,8 @@ const Index = () => {
                   onDisconnect={disconnect}
                   onCheckHealth={checkAPIHealth}
                 />
+                
+                <SystemHealthMonitor />
                 
                 <Portfolio 
                   portfolio={portfolio} 
@@ -89,7 +92,7 @@ const Index = () => {
 
           <TabsContent value="classic" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Left column - Status and Portfolio */}
+              {/* Left column - Status, Health Monitor and Portfolio */}
               <div className="lg:col-span-1 space-y-6">
                 <WebSocketStatus
                   isConnected={isConnected}
@@ -99,6 +102,8 @@ const Index = () => {
                   onDisconnect={disconnect}
                   onCheckHealth={checkAPIHealth}
                 />
+                
+                <SystemHealthMonitor />
                 
                 <Portfolio 
                   portfolio={portfolio} 

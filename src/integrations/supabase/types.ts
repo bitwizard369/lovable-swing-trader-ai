@@ -168,7 +168,7 @@ export type Database = {
           session_id: string
           side: string
           size: number
-          status: string
+          status?: string
           symbol: string
           trailing_stop_price?: number | null
           unrealized_pnl?: number
@@ -335,7 +335,109 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      cleanup_old_sessions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      cleanup_session_positions: {
+        Args: { p_session_id: string }
+        Returns: undefined
+      }
+      close_position: {
+        Args: {
+          p_session_id: string
+          p_external_id: string
+          p_exit_price: number
+          p_realized_pnl: number
+        }
+        Returns: undefined
+      }
+      close_position_complete: {
+        Args: {
+          p_session_id: string
+          p_external_id: string
+          p_exit_price: number
+          p_realized_pnl: number
+        }
+        Returns: undefined
+      }
+      emergency_close_session_positions: {
+        Args: { p_session_id: string }
+        Returns: {
+          position_id: string
+          external_id: string
+          symbol: string
+          side: string
+          pnl: number
+          status: string
+        }[]
+      }
+      emergency_session_cleanup: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          action: string
+          affected_count: number
+          details: string
+        }[]
+      }
+      get_active_positions_for_session: {
+        Args: { p_session_id: string }
+        Returns: {
+          id: string
+          external_id: string
+          symbol: string
+          side: string
+          size: number
+          entry_price: number
+          current_price: number
+          unrealized_pnl: number
+          realized_pnl: number
+          status: string
+          entry_time: string
+          prediction_data: Json
+          created_at: string
+          updated_at: string
+        }[]
+      }
+      reset_session_completely: {
+        Args: { p_session_id: string }
+        Returns: undefined
+      }
+      trading_system_health_check: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          metric: string
+          value: number
+          status: string
+        }[]
+      }
+      update_position_price_and_pnl: {
+        Args: {
+          p_session_id: string
+          p_external_id: string
+          p_current_price: number
+          p_unrealized_pnl: number
+        }
+        Returns: undefined
+      }
+      validate_session_positions: {
+        Args: { p_session_id: string }
+        Returns: {
+          position_count: number
+          open_positions: number
+          old_open_positions: number
+          validation_status: string
+        }[]
+      }
+      validate_trading_data_integrity: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          check_name: string
+          status: string
+          count_found: number
+          description: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
