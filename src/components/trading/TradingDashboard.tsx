@@ -1,4 +1,3 @@
-
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,6 +5,8 @@ import { Wifi, WifiOff, Brain, TrendingUp, TrendingDown, DollarSign, Activity, T
 import { Portfolio as PortfolioType, Position, TradingSignal } from "@/types/trading";
 import { AdvancedIndicators, MarketContext } from "@/services/advancedTechnicalAnalysis";
 import { PredictionOutput } from "@/services/aiPredictionModel";
+import { PortfolioDebugPanel } from "@/components/PortfolioDebugPanel";
+import { ReconciliationReport } from "@/utils/portfolioReconciliation";
 
 interface OrderBookLevel {
   price: number;
@@ -46,6 +47,8 @@ interface TradingDashboardProps {
   signals: TradingSignal[];
   latestSignal: TradingSignal | null;
   onConfigUpdate: (config: any) => void;
+  portfolioReconciliation?: ReconciliationReport | null;
+  onPortfolioReconcile?: () => void;
 }
 
 export const TradingDashboard = ({
@@ -65,7 +68,9 @@ export const TradingDashboard = ({
   modelPerformance,
   signals,
   latestSignal,
-  onConfigUpdate
+  onConfigUpdate,
+  portfolioReconciliation,
+  onPortfolioReconcile
 }: TradingDashboardProps) => {
   const formatCurrency = (amount: number) => 
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -116,12 +121,20 @@ export const TradingDashboard = ({
           </CardContent>
         </Card>
 
-        {/* Portfolio Value */}
+        {/* Portfolio Value - Enhanced with validation status */}
         <Card className="col-span-1">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="h-4 w-4 text-blue-500" />
               <span className="text-sm font-medium">Portfolio</span>
+              {portfolioReconciliation && (
+                <Badge 
+                  variant={portfolioReconciliation.isConsistent ? "default" : "secondary"} 
+                  className="text-xs"
+                >
+                  {portfolioReconciliation.isConsistent ? "✓" : "!"}
+                </Badge>
+              )}
             </div>
             <div className="space-y-1">
               <div className="text-2xl font-bold">{formatCurrency(portfolio.equity)}</div>
@@ -129,6 +142,11 @@ export const TradingDashboard = ({
               <div className={`text-sm ${totalUnrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 P&L: {formatCurrency(totalUnrealizedPnL)}
               </div>
+              {portfolioReconciliation && !portfolioReconciliation.isConsistent && (
+                <div className="text-xs text-yellow-600">
+                  {portfolioReconciliation.discrepancies.length} calc issues
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -178,6 +196,17 @@ export const TradingDashboard = ({
           </CardContent>
         </Card>
       </div>
+
+      {/* Portfolio Debug Panel */}
+      {(portfolioReconciliation || onPortfolioReconcile) && (
+        <div className="mb-6">
+          <PortfolioDebugPanel
+            portfolio={portfolio}
+            reconciliationReport={portfolioReconciliation}
+            onReconcile={onPortfolioReconcile || (() => {})}
+          />
+        </div>
+      )}
 
       {/* Secondary Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">

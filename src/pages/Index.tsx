@@ -17,6 +17,7 @@ const Index = () => {
 
   const {
     portfolio,
+    portfolioReconciliation,
     indicators: advancedIndicators,
     marketContext,
     prediction,
@@ -27,6 +28,7 @@ const Index = () => {
     signals,
     latestSignal,
     basicIndicators,
+    validateAndReconcilePortfolio,
   } = useAdvancedTradingSystem(
     'btcusdt',
     orderBook.bids,
@@ -55,6 +57,8 @@ const Index = () => {
         signals={signals}
         latestSignal={latestSignal}
         onConfigUpdate={updateConfig}
+        portfolioReconciliation={portfolioReconciliation}
+        onPortfolioReconcile={validateAndReconcilePortfolio}
       />
     </div>
   );
