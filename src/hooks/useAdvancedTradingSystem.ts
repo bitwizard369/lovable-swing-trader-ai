@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
 import { TradingSignal, Position, Portfolio, TradingConfig as BaseTradingConfig } from '@/types/trading';
-import { PortfolioReconciliationService, ReconciliationReport } from '@/utils/portfolioReconciliation';
+import { PortfolioCalculator } from '@/services/portfolioCalculator';
 
 const initialPortfolio: Portfolio = {
   baseCapital: 10000,
@@ -63,7 +63,6 @@ export const useAdvancedTradingSystem = (
   asks: any[]
 ) => {
   const [portfolio, setPortfolio] = useState<Portfolio>(initialPortfolio);
-  const [portfolioReconciliation, setPortfolioReconciliation] = useState<ReconciliationReport | null>(null);
 
   const [config, setConfig] = useState<AdvancedTradingConfig>({
     minProbability: 0.48, // Recalibrated from 0.50
@@ -107,22 +106,6 @@ export const useAdvancedTradingSystem = (
   const aiModel = useRef(new AIPredictionModel());
   const lastSignalTime = useRef(0);
 
-  // Enhanced portfolio validation and reconciliation
-  const validateAndReconcilePortfolio = useCallback((currentPortfolio: Portfolio) => {
-    console.log(`[Portfolio Debug] 🔍 Validating portfolio with ${currentPortfolio.positions.length} positions`);
-    
-    const report = PortfolioReconciliationService.reconcilePortfolio(currentPortfolio);
-    setPortfolioReconciliation(report);
-    
-    if (!report.isConsistent) {
-      console.warn(`[Portfolio Debug] ⚠️ Portfolio inconsistencies detected, applying corrections`);
-      const correctedPortfolio = PortfolioReconciliationService.createCorrectedPortfolio(currentPortfolio, report);
-      return correctedPortfolio;
-    }
-    
-    return currentPortfolio;
-  }, []);
-
   const canOpenPosition = useCallback((positionValue: number): boolean => {
     const openPositions = portfolio.positions.filter(p => p.status === 'OPEN').length;
     
@@ -158,24 +141,21 @@ export const useAdvancedTradingSystem = (
     };
 
     console.log(`[Portfolio Debug] 📍 Adding position: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
-    console.log(`[Portfolio Debug] 💰 Position value: ${positionValue.toFixed(2)}, Available balance before: ${portfolio.availableBalance.toFixed(2)}`);
 
     setPortfolio(prev => {
+        const updatedPositions = [...prev.positions, newPosition];
         const updatedPortfolio = {
             ...prev,
-            positions: [...prev.positions, newPosition],
-            availableBalance: prev.availableBalance - positionValue
+            positions: updatedPositions
         };
         
-        console.log(`[Portfolio Debug] 💰 Available balance after: ${updatedPortfolio.availableBalance.toFixed(2)}`);
-        
-        // Validate and reconcile the updated portfolio
-        return validateAndReconcilePortfolio(updatedPortfolio);
+        // Recalculate everything with precise math
+        return PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
     });
 
     console.log(`[Trading Bot] ✅ Position opened: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
     return newPosition;
-  }, [canOpenPosition, portfolio.availableBalance, validateAndReconcilePortfolio]);
+  }, [canOpenPosition]);
 
   const closePosition = useCallback((positionId: string, closePrice: number) => {
     console.log(`[Portfolio Debug] 🚪 Closing position ${positionId} at price ${closePrice.toFixed(2)}`);
@@ -187,92 +167,70 @@ export const useAdvancedTradingSystem = (
         return prev;
       }
 
-      console.log(`[Portfolio Debug] 📊 Position details: ${position.side} ${position.size.toFixed(6)} ${position.symbol}, Entry: ${position.entryPrice.toFixed(2)}`);
-
       const realizedPnL = position.side === 'BUY'
         ? (closePrice - position.entryPrice) * position.size
         : (position.entryPrice - closePrice) * position.size;
 
-      console.log(`[Portfolio Debug] 💵 Calculated realized P&L: ${realizedPnL.toFixed(2)}`);
+      console.log(`[Portfolio Debug] 💵 Calculated realized P&L: ${realizedPnL.toFixed(6)}`);
 
-      const positionValueAtClose = position.size * closePrice;
-      
       let newLockedProfits = prev.lockedProfits;
-      let newAvailableBalance = prev.availableBalance + positionValueAtClose;
 
       if (config.enableProfitLock && realizedPnL > 0) {
         const isAboveThreshold = config.minProfitLockThreshold === undefined || realizedPnL >= config.minProfitLockThreshold;
         if (isAboveThreshold) {
           const lockedAmount = realizedPnL * config.profitLockPercentage;
           newLockedProfits += lockedAmount;
-          newAvailableBalance -= lockedAmount;
           console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD profit (${(config.profitLockPercentage * 100).toFixed(1)}% of ${realizedPnL.toFixed(2)})`);
         }
       }
 
-      console.log(`[Portfolio Debug] 💰 Balance update: ${prev.availableBalance.toFixed(2)} + ${positionValueAtClose.toFixed(2)} = ${newAvailableBalance.toFixed(2)}`);
-      console.log(`[Portfolio Debug] 🔒 Locked profits: ${prev.lockedProfits.toFixed(2)} → ${newLockedProfits.toFixed(2)}`);
+      const updatedPositions = prev.positions.map(p =>
+        p.id === positionId
+          ? { ...p, status: 'CLOSED' as const, realizedPnL, currentPrice: closePrice, unrealizedPnL: 0 }
+          : p
+      );
 
       const updatedPortfolio = {
         ...prev,
-        positions: prev.positions.map(p =>
-          p.id === positionId
-            ? { ...p, status: 'CLOSED' as const, realizedPnL, currentPrice: closePrice, unrealizedPnL: 0 }
-            : p
-        ),
-        availableBalance: newAvailableBalance,
+        positions: updatedPositions,
         lockedProfits: newLockedProfits,
-        totalPnL: prev.totalPnL + realizedPnL,
         dayPnL: prev.dayPnL + realizedPnL,
       };
 
-      console.log(`[Portfolio Debug] 📊 Portfolio totals: Total P&L: ${prev.totalPnL.toFixed(2)} + ${realizedPnL.toFixed(2)} = ${updatedPortfolio.totalPnL.toFixed(2)}`);
       console.log(`[Trading Bot] 🚪 Position closed: ${position.symbol} P&L: ${realizedPnL.toFixed(2)} USD`);
 
-      // Validate and reconcile the updated portfolio
-      return validateAndReconcilePortfolio(updatedPortfolio);
+      // Recalculate everything with precise math
+      return PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
     });
-  }, [config.enableProfitLock, config.profitLockPercentage, config.minProfitLockThreshold, validateAndReconcilePortfolio]);
+  }, [config.enableProfitLock, config.profitLockPercentage, config.minProfitLockThreshold]);
 
   const updatePositionPrices = useCallback((currentPrice: number) => {
     setPortfolio(prev => {
+        const hasOpenPositions = prev.positions.some(p => p.symbol === symbol && p.status === 'OPEN');
+        if (!hasOpenPositions) return prev;
+
         const updatedPositions = prev.positions.map(position => {
             if (position.symbol === symbol && position.status === 'OPEN') {
-                const unrealizedPnL = position.side === 'BUY'
-                    ? (currentPrice - position.entryPrice) * position.size
-                    : (position.entryPrice - currentPrice) * position.size;
-                    
-                if (config.debugMode && Math.abs(unrealizedPnL - position.unrealizedPnL) > 0.01) {
-                  console.log(`[Portfolio Debug] 📈 Position ${position.id} P&L update: ${position.unrealizedPnL.toFixed(2)} → ${unrealizedPnL.toFixed(2)}`);
-                }
-                    
-                return { ...position, currentPrice, unrealizedPnL };
+                return { ...position, currentPrice };
             }
             return position;
         });
 
-        const totalUnrealizedPnL = updatedPositions
-            .filter(p => p.status === 'OPEN')
-            .reduce((sum, p) => sum + p.unrealizedPnL, 0);
-
         const updatedPortfolio = {
             ...prev,
-            positions: updatedPositions,
-            equity: prev.baseCapital + prev.totalPnL + prev.lockedProfits + totalUnrealizedPnL
+            positions: updatedPositions
         };
 
-        if (config.debugMode) {
-          console.log(`[Portfolio Debug] 🔄 Price update equity calculation: ${prev.baseCapital.toFixed(2)} + ${prev.totalPnL.toFixed(2)} + ${prev.lockedProfits.toFixed(2)} + ${totalUnrealizedPnL.toFixed(2)} = ${updatedPortfolio.equity.toFixed(2)}`);
+        // Recalculate with precise math
+        const recalculated = PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
+
+        if (config.debugMode && Math.abs(recalculated.equity - prev.equity) > 0.01) {
+          console.log(`[Portfolio Debug] 🔄 Price update: Equity ${prev.equity.toFixed(6)} → ${recalculated.equity.toFixed(6)}`);
         }
 
-        // Only validate on significant changes to avoid excessive logging
-        if (Math.abs(updatedPortfolio.equity - prev.equity) > 0.1) {
-          return validateAndReconcilePortfolio(updatedPortfolio);
-        }
-        
-        return updatedPortfolio;
+        return recalculated;
     });
-  }, [symbol, config.debugMode, validateAndReconcilePortfolio]);
+  }, [symbol, config.debugMode]);
 
   const updatePositionTracking = useCallback((currentPrice: number) => {
     setActivePositions(prev => {
@@ -822,12 +780,18 @@ export const useAdvancedTradingSystem = (
     actualReturn: number,
     reason: string
   ) => {
-    setPortfolio(prev => ({
-      ...prev,
-      positions: prev.positions.map(p =>
+    setPortfolio(prev => {
+      const updatedPositions = prev.positions.map(p =>
         p.id === positionId ? { ...p, size: p.size - exitQuantity } : p
-      )
-    }));
+      );
+      
+      const updatedPortfolio = {
+        ...prev,
+        positions: updatedPositions
+      };
+      
+      return PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
+    });
 
     setActivePositions(prev => {
       const updated = new Map(prev);
@@ -888,25 +852,9 @@ export const useAdvancedTradingSystem = (
     setConfig(prev => ({ ...prev, ...newConfig }));
   }, []);
 
-  // Periodic portfolio validation
-  useEffect(() => {
-    const validationInterval = setInterval(() => {
-      if (portfolio.positions.length > 0) {
-        console.log(`[Portfolio Debug] 🔄 Periodic portfolio validation`);
-        const report = PortfolioReconciliationService.reconcilePortfolio(portfolio);
-        if (!report.isConsistent) {
-          console.warn(`[Portfolio Debug] ⚠️ Periodic validation found inconsistencies, triggering reconciliation`);
-          setPortfolio(prev => validateAndReconcilePortfolio(prev));
-        }
-      }
-    }, 30000); // Validate every 30 seconds
-
-    return () => clearInterval(validationInterval);
-  }, [portfolio, validateAndReconcilePortfolio]);
-
   return {
     portfolio,
-    portfolioReconciliation,
+    portfolioReconciliation: null, // Removed reconciliation system
     indicators,
     marketContext,
     prediction,
@@ -919,6 +867,6 @@ export const useAdvancedTradingSystem = (
     signals,
     latestSignal: signals.length > 0 ? signals[signals.length - 1] : null,
     basicIndicators,
-    validateAndReconcilePortfolio: () => validateAndReconcilePortfolio(portfolio)
+    validateAndReconcilePortfolio: () => PortfolioCalculator.recalculatePortfolio(portfolio)
   };
 };
