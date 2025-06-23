@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BinanceWebSocketService, checkBinanceAPIHealth } from '@/services/binanceWebSocket';
 
@@ -28,28 +29,38 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
   const [latestUpdate, setLatestUpdate] = useState<BinanceDepthEvent | null>(null);
   const wsService = useRef<BinanceWebSocketService | null>(null);
+  const updateCountRef = useRef(0);
+  const lastUpdateTimeRef = useRef(0);
 
+  // Debounced update handler to prevent excessive re-renders
   const handleDepthUpdate = useCallback((data: BinanceDepthEvent) => {
+    const now = Date.now();
+    updateCountRef.current++;
+    
+    // Limit update frequency to prevent browser overload
+    if (now - lastUpdateTimeRef.current < 100) { // Max 10 updates per second
+      return;
+    }
+    
+    lastUpdateTimeRef.current = now;
     setLatestUpdate(data);
     
-    // Update order book
+    // Update order book with memory management
     setOrderBook(prev => {
       const newBids = [...prev.bids];
       const newAsks = [...prev.asks];
 
-      // Update bids
+      // Process bid updates
       data.b.forEach(([price, quantity]) => {
         const priceNum = parseFloat(price);
         const quantityNum = parseFloat(quantity);
         const index = newBids.findIndex(bid => bid.price === priceNum);
         
         if (quantityNum === 0) {
-          // Remove level if quantity is 0
           if (index !== -1) {
             newBids.splice(index, 1);
           }
         } else {
-          // Update or add level
           if (index !== -1) {
             newBids[index].quantity = quantityNum;
           } else {
@@ -58,19 +69,17 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
         }
       });
 
-      // Update asks
+      // Process ask updates
       data.a.forEach(([price, quantity]) => {
         const priceNum = parseFloat(price);
         const quantityNum = parseFloat(quantity);
         const index = newAsks.findIndex(ask => ask.price === priceNum);
         
         if (quantityNum === 0) {
-          // Remove level if quantity is 0
           if (index !== -1) {
             newAsks.splice(index, 1);
           }
         } else {
-          // Update or add level
           if (index !== -1) {
             newAsks[index].quantity = quantityNum;
           } else {
@@ -79,58 +88,114 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
         }
       });
 
-      // Sort order book
-      newBids.sort((a, b) => b.price - a.price); // Descending for bids
-      newAsks.sort((a, b) => a.price - b.price); // Ascending for asks
+      // Sort and limit to prevent memory bloat
+      newBids.sort((a, b) => b.price - a.price);
+      newAsks.sort((a, b) => a.price - b.price);
 
-      // Keep only top 20 levels for performance
       return {
-        bids: newBids.slice(0, 20),
-        asks: newAsks.slice(0, 20),
+        bids: newBids.slice(0, 20), // Strict memory limit
+        asks: newAsks.slice(0, 20), // Strict memory limit
         lastUpdateId: data.u
       };
     });
+
+    // Log performance metrics every 100 updates
+    if (updateCountRef.current % 100 === 0) {
+      console.log(`📊 Performance: ${updateCountRef.current} updates processed`);
+    }
   }, []);
 
   const handleConnectionStatusChange = useCallback((status: boolean) => {
     setIsConnected(status);
+    if (!status) {
+      console.log('🔌 Connection lost - clearing stale data');
+      // Clear stale data when disconnected
+      setLatestUpdate(null);
+    }
   }, []);
 
   const connect = useCallback(() => {
-    if (!wsService.current) {
-      wsService.current = new BinanceWebSocketService(
-        symbol,
-        handleDepthUpdate,
-        handleConnectionStatusChange
-      );
+    console.log('🔄 Establishing WebSocket connection...');
+    
+    // Clean up existing connection
+    if (wsService.current) {
+      wsService.current.cleanup();
     }
+    
+    wsService.current = new BinanceWebSocketService(
+      symbol,
+      handleDepthUpdate,
+      handleConnectionStatusChange
+    );
+    
     wsService.current.connect();
   }, [symbol, handleDepthUpdate, handleConnectionStatusChange]);
 
   const disconnect = useCallback(() => {
+    console.log('🛑 Manually disconnecting WebSocket...');
     if (wsService.current) {
-      wsService.current.disconnect();
+      wsService.current.cleanup();
+      wsService.current = null;
     }
+    
+    // Reset state
+    setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
+    setLatestUpdate(null);
+    updateCountRef.current = 0;
   }, []);
 
   const checkAPIHealth = useCallback(async () => {
+    console.log('🏥 Checking API health...');
     const healthy = await checkBinanceAPIHealth();
     setApiHealthy(healthy);
+    
+    if (!healthy) {
+      console.error('❌ API unhealthy - consider reconnecting');
+    }
+    
     return healthy;
   }, []);
 
   useEffect(() => {
+    console.log('🚀 Initializing WebSocket connection...');
+    
     // Check API health on mount
     checkAPIHealth();
 
-    // Auto-connect on mount
-    connect();
+    // Auto-connect with delay to prevent immediate reconnection loops
+    const connectTimer = setTimeout(() => {
+      connect();
+    }, 1000);
 
-    // Cleanup on unmount
+    // Cleanup function with proper resource management
     return () => {
-      disconnect();
+      console.log('🧹 Cleaning up WebSocket resources...');
+      clearTimeout(connectTimer);
+      
+      if (wsService.current) {
+        wsService.current.cleanup();
+        wsService.current = null;
+      }
+      
+      // Reset all state
+      setIsConnected(false);
+      setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
+      setLatestUpdate(null);
+      setApiHealthy(null);
+      updateCountRef.current = 0;
     };
-  }, [connect, disconnect, checkAPIHealth]);
+  }, [connect, checkAPIHealth]);
+
+  // Performance monitoring
+  useEffect(() => {
+    const performanceTimer = setInterval(() => {
+      if (updateCountRef.current > 0) {
+        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}`);
+      }
+    }, 30000); // Every 30 seconds
+
+    return () => clearInterval(performanceTimer);
+  }, [isConnected]);
 
   return {
     isConnected,
@@ -139,6 +204,9 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     latestUpdate,
     connect,
     disconnect,
-    checkAPIHealth
+    checkAPIHealth,
+    // Add performance metrics for debugging
+    updateCount: updateCountRef.current,
+    connectionStable: isConnected && updateCountRef.current > 0
   };
 };
