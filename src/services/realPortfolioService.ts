@@ -15,13 +15,12 @@ export class RealPortfolioService {
   private updateCallbacks: ((portfolio: Portfolio) => void)[] = [];
 
   private constructor() {
-    // Initialize with real account data detection
-    this.accountData = this.detectRealAccountData();
+    // Initialize with ONLY the $10K demo balance - NO FALLBACK DATA
+    this.accountData = this.initializeDemoAccount();
     
-    // Set up periodic account sync (every 30 seconds)
-    setInterval(() => {
-      this.syncWithRealAccount();
-    }, 30000);
+    console.log('📊 Real Portfolio Service initialized with DEMO MODE ONLY');
+    console.log('💰 Starting balance: $10,000 (Paper money for real market data testing)');
+    console.log('🚨 NO synthetic or fallback data will be used');
   }
 
   static getInstance(): RealPortfolioService {
@@ -31,49 +30,19 @@ export class RealPortfolioService {
     return RealPortfolioService.instance;
   }
 
-  private detectRealAccountData(): RealAccountData {
-    // Check if we have real account data in localStorage
-    const savedAccount = localStorage.getItem('realAccountData');
-    
-    if (savedAccount) {
-      try {
-        const parsed = JSON.parse(savedAccount);
-        console.log('📊 Real account data detected:', parsed.accountBalance);
-        return parsed;
-      } catch (error) {
-        console.error('❌ Failed to parse saved account data:', error);
-      }
-    }
-
-    // If no real account data, start with warning
-    console.warn('⚠️ No real account data found - using minimal demo balance');
-    console.warn('🚨 IMPORTANT: Connect real broker API for live trading');
-    
-    return {
-      accountBalance: 100, // Minimal demo amount with clear warning
-      availableBalance: 100,
+  private initializeDemoAccount(): RealAccountData {
+    // ONLY use the demo $10K balance - no detection of "real" account data
+    // This is paper money for testing with real market data
+    const demoAccount: RealAccountData = {
+      accountBalance: 10000, // Demo paper money
+      availableBalance: 10000,
       lockedBalance: 0,
       positions: [],
       lastUpdated: Date.now()
     };
-  }
 
-  private async syncWithRealAccount(): Promise<void> {
-    try {
-      // TODO: Replace with actual broker API integration
-      // Example: const accountData = await brokerAPI.getAccountData();
-      
-      console.log('🔄 Syncing with real account (placeholder - needs broker API)');
-      
-      // For now, just update timestamp to show it's attempting sync
-      this.accountData.lastUpdated = Date.now();
-      
-      // Notify all subscribers of account updates
-      this.notifySubscribers();
-      
-    } catch (error) {
-      console.error('❌ Failed to sync with real account:', error);
-    }
+    console.log('💡 Demo account initialized: $10,000 paper money for real market data testing');
+    return demoAccount;
   }
 
   public getPortfolio(): Portfolio {
@@ -101,29 +70,26 @@ export class RealPortfolioService {
   public addPosition(position: Omit<Position, 'id' | 'unrealizedPnL' | 'realizedPnL' | 'status'>): Position | null {
     const positionValue = position.size * position.entryPrice;
     
-    // Real balance validation
+    // Real balance validation with demo money
     if (this.accountData.availableBalance < positionValue) {
-      console.error('❌ Insufficient real balance for position');
+      console.error('❌ Insufficient demo balance for position');
       return null;
     }
 
     const newPosition: Position = {
       ...position,
-      id: `real_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       unrealizedPnL: 0,
       realizedPnL: 0,
       status: 'OPEN'
     };
 
-    // Update real account balances
+    // Update demo account balances
     this.accountData.availableBalance -= positionValue;
     this.accountData.positions.push(newPosition);
     this.accountData.lastUpdated = Date.now();
 
-    // Persist to localStorage as backup
-    this.persistAccountData();
-    
-    console.log(`✅ Real position added: ${newPosition.side} ${newPosition.size} at ${newPosition.entryPrice}`);
+    console.log(`✅ Demo position added: ${newPosition.side} ${newPosition.size} at ${newPosition.entryPrice} (Paper money)`);
     this.notifySubscribers();
     
     return newPosition;
@@ -147,26 +113,15 @@ export class RealPortfolioService {
     position.realizedPnL = realizedPnL;
     position.currentPrice = closePrice;
 
-    // Update account balance with realized P&L
+    // Update demo account balance with realized P&L
     this.accountData.accountBalance += realizedPnL;
     this.accountData.availableBalance += realizedPnL;
     this.accountData.lastUpdated = Date.now();
-
-    // Persist changes
-    this.persistAccountData();
     
-    console.log(`✅ Real position closed: P&L ${realizedPnL.toFixed(6)}`);
+    console.log(`✅ Demo position closed: P&L ${realizedPnL.toFixed(6)} (Paper money)`);
     this.notifySubscribers();
     
     return true;
-  }
-
-  private persistAccountData(): void {
-    try {
-      localStorage.setItem('realAccountData', JSON.stringify(this.accountData));
-    } catch (error) {
-      console.error('❌ Failed to persist account data:', error);
-    }
   }
 
   public subscribe(callback: (portfolio: Portfolio) => void): () => void {
@@ -192,27 +147,9 @@ export class RealPortfolioService {
     });
   }
 
-  // Method to connect real broker API
-  public async connectRealBroker(apiKey: string, apiSecret: string): Promise<boolean> {
-    try {
-      console.log('🔌 Connecting to real broker API...');
-      
-      // TODO: Implement actual broker API connection
-      // const connection = await brokerAPI.connect(apiKey, apiSecret);
-      // const accountData = await brokerAPI.getAccountData();
-      
-      console.warn('⚠️ Real broker API integration not yet implemented');
-      console.log('📝 To implement: Add your broker\'s API integration here');
-      
-      return false;
-    } catch (error) {
-      console.error('❌ Failed to connect to real broker:', error);
-      return false;
-    }
-  }
-
   public isUsingRealData(): boolean {
-    return this.accountData.accountBalance > 100; // If more than demo amount
+    // Always return false since this is demo money, not real broker data
+    return false;
   }
 
   public getAccountInfo(): RealAccountData {
