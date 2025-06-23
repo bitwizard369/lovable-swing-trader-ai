@@ -240,7 +240,8 @@ export class AIPredictionModel {
       volatilityRegime: 'MEDIUM',
       liquidityScore: 0.5,
       spreadQuality: 0.5,
-      marketHour: 'NEW_YORK'
+      marketHour: 'NEW_YORK',
+      newsImpact: 'NEUTRAL' // Fixed: Added missing newsImpact property
     };
     
     const indicators: AdvancedIndicators = {
@@ -252,7 +253,7 @@ export class AIPredictionModel {
       macd: 0,
       macd_signal: 0,
       macd_histogram: 0,
-      sma_20: outcome.entryPrice,
+      sma_21: outcome.entryPrice, // Fixed: Changed from sma_20 to sma_21
       ema_12: outcome.entryPrice,
       ema_26: outcome.entryPrice,
       atr: outcome.entryPrice * 0.01,
@@ -898,12 +899,13 @@ export class AIPredictionModel {
 
   private updateOptimizedPerformanceMetrics() {
     const realStats = this.realTrainingService.getRealMarketStatistics();
+    const dataQuality = this.realTrainingService.getDataQuality();
     
-    // Update with real performance data
+    // Update with real performance data - Fixed: Use correct property names
     this.performanceMetrics = {
-      accuracy: realStats.accuracy,
-      precision: realStats.precision,
-      recall: realStats.recall,
+      accuracy: dataQuality.predictionAccuracy, // Fixed: Use predictionAccuracy from dataQuality
+      precision: realStats.winRate, // Fixed: Use winRate as precision approximation
+      recall: realStats.winRate, // Fixed: Use winRate as recall approximation
       sharpeRatio: realStats.sharpeRatio,
       maxDrawdown: realStats.maxDrawdown,
       totalTrades: realStats.totalTrades,
