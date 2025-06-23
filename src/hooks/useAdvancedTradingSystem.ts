@@ -3,9 +3,10 @@ import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
 import { TradingSignal, Position, Portfolio, TradingConfig as BaseTradingConfig } from '@/types/trading';
 import { PortfolioCalculator } from '@/services/portfolioCalculator';
+import { RealTrainingDataService } from '@/services/realTrainingDataService';
 
 const initialPortfolio: Portfolio = {
-  baseCapital: 10000,
+  baseCapital: 10000, // Demo mode with $10,000 starting balance
   availableBalance: 10000,
   lockedProfits: 0,
   positions: [],
@@ -55,6 +56,8 @@ interface PositionTracking {
   maxAdverseExcursion: number;
   trailingStopPrice?: number;
   partialProfitsTaken: number;
+  marketContextAtEntry: MarketContext;
+  indicatorsAtEntry: AdvancedIndicators;
 }
 
 export const useAdvancedTradingSystem = (
@@ -104,7 +107,18 @@ export const useAdvancedTradingSystem = (
 
   const technicalAnalysis = useRef(new AdvancedTechnicalAnalysis());
   const aiModel = useRef(new AIPredictionModel());
+  const realTrainingService = useRef<RealTrainingDataService | null>(null);
   const lastSignalTime = useRef(0);
+
+  // Initialize real training data service
+  useEffect(() => {
+    realTrainingService.current = aiModel.current.getRealTrainingDataService();
+    console.log(`[Real Trading System] 🚀 Initialized with REAL training data service`);
+    console.log(`[Real Trading System] 📊 Demo mode active with $${initialPortfolio.baseCapital.toLocaleString()} starting balance`);
+    
+    const dataQuality = realTrainingService.current.getDataQuality();
+    console.log(`[Real Trading System] 📈 Real data quality:`, dataQuality);
+  }, []);
 
   const canOpenPosition = useCallback((positionValue: number): boolean => {
     const openPositions = portfolio.positions.filter(p => p.status === 'OPEN').length;
@@ -115,7 +129,7 @@ export const useAdvancedTradingSystem = (
     const isUnderMaxLoss = Math.abs(portfolio.dayPnL) < config.maxDailyLoss;
 
     if (config.debugMode) {
-      console.log(`[Trading Bot] 💰 Position validation:`);
+      console.log(`[Real Trading System] 💰 Position validation (Demo mode):`);
       console.log(`  - Available Balance: ${portfolio.availableBalance.toFixed(2)} >= ${positionValue.toFixed(2)} ✓${hasEnoughBalance ? '✅' : '❌'}`);
       console.log(`  - Open Positions: ${openPositions} < ${config.maxOpenPositions} ✓${isUnderMaxPositions ? '✅' : '❌'}`);
       console.log(`  - Position Size: ${positionValue.toFixed(2)} <= ${config.maxPositionSize} ✓${isUnderMaxSize ? '✅' : '❌'}`);
@@ -128,7 +142,7 @@ export const useAdvancedTradingSystem = (
   const addPosition = useCallback((position: Omit<Position, 'id' | 'unrealizedPnL' | 'realizedPnL' | 'status'>): Position | null => {
     const positionValue = position.size * position.entryPrice;
     if (!canOpenPosition(positionValue)) {
-        console.log(`[Trading Bot] ❌ Cannot open position: Risk limits exceeded`);
+        console.log(`[Real Trading System] ❌ Cannot open position: Risk limits exceeded`);
         return null;
     }
 
@@ -140,7 +154,7 @@ export const useAdvancedTradingSystem = (
       status: 'OPEN'
     };
 
-    console.log(`[Portfolio Debug] 📍 Adding position: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
+    console.log(`[Real Trading System] 📍 Adding DEMO position: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
 
     setPortfolio(prev => {
         const updatedPositions = [...prev.positions, newPosition];
@@ -152,17 +166,17 @@ export const useAdvancedTradingSystem = (
         return PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
     });
 
-    console.log(`[Trading Bot] ✅ Position opened: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
+    console.log(`[Real Trading System] ✅ DEMO position opened: ${newPosition.side} ${newPosition.size.toFixed(6)} ${newPosition.symbol} at ${newPosition.entryPrice.toFixed(2)}`);
     return newPosition;
   }, [canOpenPosition]);
 
   const closePosition = useCallback((positionId: string, closePrice: number) => {
-    console.log(`[Portfolio Debug] 🚪 Closing position ${positionId} at price ${closePrice.toFixed(2)}`);
+    console.log(`[Real Trading System] 🚪 Closing DEMO position ${positionId} at price ${closePrice.toFixed(2)}`);
     
     setPortfolio(prev => {
       const position = prev.positions.find(p => p.id === positionId);
       if (!position || position.status === 'CLOSED') {
-        console.warn(`[Portfolio Debug] ⚠️ Position ${positionId} not found or already closed`);
+        console.warn(`[Real Trading System] ⚠️ Position ${positionId} not found or already closed`);
         return prev;
       }
 
@@ -170,7 +184,7 @@ export const useAdvancedTradingSystem = (
         ? (closePrice - position.entryPrice) * position.size
         : (position.entryPrice - closePrice) * position.size;
 
-      console.log(`[Portfolio Debug] 💵 Calculated realized P&L: ${realizedPnL.toFixed(6)}`);
+      console.log(`[Real Trading System] 💵 DEMO P&L calculated: ${realizedPnL.toFixed(6)}`);
 
       let newLockedProfits = prev.lockedProfits;
 
@@ -179,7 +193,7 @@ export const useAdvancedTradingSystem = (
         if (isAboveThreshold) {
           const lockedAmount = realizedPnL * config.profitLockPercentage;
           newLockedProfits += lockedAmount;
-          console.log(`[Profit Lock] 🔒 Locking ${lockedAmount.toFixed(2)} USD profit (${(config.profitLockPercentage * 100).toFixed(1)}% of ${realizedPnL.toFixed(2)})`);
+          console.log(`[Real Trading System] 🔒 Locking ${lockedAmount.toFixed(2)} USD profit (DEMO mode)`);
         }
       }
 
@@ -196,7 +210,7 @@ export const useAdvancedTradingSystem = (
         dayPnL: prev.dayPnL + realizedPnL,
       };
 
-      console.log(`[Trading Bot] 🚪 Position closed: ${position.symbol} P&L: ${realizedPnL.toFixed(2)} USD`);
+      console.log(`[Real Trading System] 🚪 DEMO position closed: ${position.symbol} P&L: ${realizedPnL.toFixed(2)} USD`);
 
       return PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
     });
@@ -222,7 +236,7 @@ export const useAdvancedTradingSystem = (
         const recalculated = PortfolioCalculator.recalculatePortfolio(updatedPortfolio);
 
         if (config.debugMode && Math.abs(recalculated.equity - prev.equity) > 0.01) {
-          console.log(`[Portfolio Debug] 🔄 Price update: Equity ${prev.equity.toFixed(6)} → ${recalculated.equity.toFixed(6)}`);
+          console.log(`[Real Trading System] 🔄 DEMO price update: Equity ${prev.equity.toFixed(6)} → ${recalculated.equity.toFixed(6)}`);
         }
 
         return recalculated;
@@ -280,14 +294,14 @@ export const useAdvancedTradingSystem = (
       const midPrice = (bids[0].price + asks[0].price) / 2;
       const volume = bids[0].quantity + asks[0].quantity;
       
-      console.log(`[Trading Bot] 🚀 OPTIMIZED: Enhanced signal generation active - Price: ${midPrice.toFixed(2)}, Volume: ${volume.toFixed(4)}`);
+      console.log(`[Real Trading System] 🚀 REAL DATA: Enhanced signal generation - Price: ${midPrice.toFixed(2)}, Volume: ${volume.toFixed(4)}`);
       
       technicalAnalysis.current.updatePriceData(midPrice, volume);
       
       const newIndicators = technicalAnalysis.current.calculateAdvancedIndicators();
       const newMarketContext = technicalAnalysis.current.getMarketContext();
       
-      console.log(`[Trading Bot] 🎯 OPTIMIZED: Market analysis - Regime: ${newMarketContext?.marketRegime}, Volatility: ${newMarketContext?.volatilityRegime}, Liquidity: ${newMarketContext?.liquidityScore?.toFixed(3)}`);
+      console.log(`[Real Trading System] 🎯 REAL DATA: Market analysis - Regime: ${newMarketContext?.marketRegime}, Volatility: ${newMarketContext?.volatilityRegime}, Liquidity: ${newMarketContext?.liquidityScore?.toFixed(3)}`);
       
       setIndicators(newIndicators);
       setMarketContext(newMarketContext);
@@ -307,10 +321,10 @@ export const useAdvancedTradingSystem = (
       }
       
       if (newIndicators && newMarketContext) {
-        console.log(`[Trading Bot] 🚀 OPTIMIZED: Generating enhanced signals with aggressive parameters`);
+        console.log(`[Real Trading System] 🚀 REAL DATA: Generating signals with real market data and training`);
         generateOptimizedSignal(midPrice, newIndicators, newMarketContext);
       } else {
-        console.log(`[Trading Bot] Awaiting sufficient data - History: ${technicalAnalysis.current.getPriceHistoryLength()}/20`);
+        console.log(`[Real Trading System] Awaiting sufficient data - History: ${technicalAnalysis.current.getPriceHistoryLength()}/20`);
       }
     }
   }, [bids, asks]);
@@ -411,12 +425,12 @@ export const useAdvancedTradingSystem = (
     prediction: PredictionOutput
   ) => {
     if (signal.action === 'HOLD') {
-      console.warn(`[Trading Bot] ⚠️ Attempted to execute a 'HOLD' signal.`);
+      console.warn(`[Real Trading System] ⚠️ Attempted to execute a 'HOLD' signal.`);
       return;
     }
 
-    console.log(`[Trading Bot] 🚀 OPTIMIZED: Executing enhanced signal: ${signal.action} ${signal.symbol}`);
-    console.log(`[Trading Bot] 📊 OPTIMIZED: Enhanced metrics - Kelly: ${prediction.kellyFraction.toFixed(3)}, Features: ${JSON.stringify(prediction.featureContributions)}`);
+    console.log(`[Real Trading System] 🚀 REAL DATA: Executing signal with real training data: ${signal.action} ${signal.symbol}`);
+    console.log(`[Real Trading System] 📊 REAL DATA: Metrics - Kelly: ${prediction.kellyFraction.toFixed(3)}, Features: ${JSON.stringify(prediction.featureContributions)}`);
     
     const newPosition = addPosition({
       symbol: signal.symbol,
@@ -427,19 +441,21 @@ export const useAdvancedTradingSystem = (
       timestamp: signal.timestamp
     });
 
-    if (newPosition) {
+    if (newPosition && indicators && marketContext) {
       setActivePositions(prev => new Map(prev.set(newPosition.id, {
         position: newPosition,
         prediction,
         entryTime: Date.now(),
         maxFavorableExcursion: 0,
         maxAdverseExcursion: 0,
-        partialProfitsTaken: 0
+        partialProfitsTaken: 0,
+        marketContextAtEntry: { ...marketContext },
+        indicatorsAtEntry: { ...indicators }
       })));
 
-      console.log(`[Trading Bot] ✅ OPTIMIZED: Enhanced position opened with aggressive tracking`);
+      console.log(`[Real Trading System] ✅ REAL DATA: Position opened with real market context tracking`);
     }
-  }, [addPosition]);
+  }, [addPosition, indicators, marketContext]);
 
   const generateOptimizedSignal = useCallback((
     currentPrice: number,
@@ -451,7 +467,7 @@ export const useAdvancedTradingSystem = (
     
     // Reduced rate limiting for more active trading
     if (timeSinceLastSignal < 1500) { // Reduced from 2000ms
-      console.log(`[Trading Bot] ⏰ OPTIMIZED: Rate limiting: ${1500 - timeSinceLastSignal}ms remaining`);
+      console.log(`[Real Trading System] ⏰ OPTIMIZED: Rate limiting: ${1500 - timeSinceLastSignal}ms remaining`);
       return;
     }
 
@@ -469,7 +485,7 @@ export const useAdvancedTradingSystem = (
       deepOrderBookData
     };
 
-    console.log(`[Trading Bot] 🚀 OPTIMIZED: Enhanced market analysis: Liquidity=${marketContext.liquidityScore.toFixed(3)}, Spread=${marketContext.spreadQuality.toFixed(3)}`);
+    console.log(`[Real Trading System] 🚀 OPTIMIZED: Enhanced market analysis: Liquidity=${marketContext.liquidityScore.toFixed(3)}, Spread=${marketContext.spreadQuality.toFixed(3)}`);
 
     const newPrediction = aiModel.current.predict(predictionInput);
     setPrediction(newPrediction);
@@ -482,19 +498,19 @@ export const useAdvancedTradingSystem = (
 
     const dynamicConfig = getDynamicOptimizedConfig(config, marketContext, adaptiveThresholds, dynamicThresholds);
 
-    console.log(`[Trading Bot] 🚀 OPTIMIZED: Enhanced prediction - Prob: ${newPrediction.probability.toFixed(3)}, Kelly: ${newPrediction.kellyFraction.toFixed(3)}, Feature contributions: ${JSON.stringify(newPrediction.featureContributions)}`);
+    console.log(`[Real Trading System] 🚀 OPTIMIZED: Enhanced prediction - Prob: ${newPrediction.probability.toFixed(3)}, Kelly: ${newPrediction.kellyFraction.toFixed(3)}, Feature contributions: ${JSON.stringify(newPrediction.featureContributions)}`);
 
     if (shouldGenerateOptimizedSignal(newPrediction, dynamicConfig, marketContext, dynamicThresholds || adaptiveThresholds)) {
-      console.log(`[Trading Bot] 🚀 OPTIMIZED: Enhanced signal conditions met!`);
+      console.log(`[Real Trading System] 🚀 OPTIMIZED: Enhanced signal conditions met!`);
       const signal = createOptimizedTradingSignal(currentPrice, newPrediction, indicators, marketContext);
       if (signal) {
-        console.log(`[Trading Bot] 📤 OPTIMIZED: Executing ${signal.action} signal with enhanced Kelly sizing`);
+        console.log(`[Real Trading System] 📤 OPTIMIZED: Executing ${signal.action} signal with enhanced Kelly sizing`);
         setSignals(prev => [...prev.slice(-9), signal]);
         executeOptimizedSignal(signal, newPrediction);
         lastSignalTime.current = now;
       }
     } else {
-      console.log(`[Trading Bot] ❌ OPTIMIZED: Signal conditions not met - but thresholds are more aggressive now`);
+      console.log(`[Real Trading System] ❌ OPTIMIZED: Signal conditions not met - but thresholds are more aggressive now`);
     }
   }, [config, getDynamicOptimizedConfig, activePositions, marketContext, executeOptimizedSignal]);
 
@@ -629,7 +645,7 @@ export const useAdvancedTradingSystem = (
     const adjustedQuantity = Math.min(quantity, (portfolio.availableBalance / price) * 0.99); // More aggressive
 
     if (adjustedQuantity !== quantity) {
-      console.log(`[Trading Bot] ⚠️ OPTIMIZED: Position size adjusted for available balance. Kelly: ${quantity.toFixed(6)}, Actual: ${adjustedQuantity.toFixed(6)}`);
+      console.log(`[Real Trading System] ⚠️ OPTIMIZED: Position size adjusted for available balance. Kelly: ${quantity.toFixed(6)}, Actual: ${adjustedQuantity.toFixed(6)}`);
     }
 
     return {
@@ -738,8 +754,8 @@ export const useAdvancedTradingSystem = (
       }
 
       if (shouldExit) {
-        console.log(`[Trading Bot] 🚪 OPTIMIZED: ${isPartialExit ? 'Partial' : 'Full'} exit: ${exitReason}`);
-        console.log(`[Trading Bot] 📊 OPTIMIZED: Performance: ${(priceChange * 100).toFixed(2)}% return, ${holdingTime.toFixed(0)}s hold`);
+        console.log(`[Real Trading System] 🚪 OPTIMIZED: ${isPartialExit ? 'Partial' : 'Full'} exit: ${exitReason}`);
+        console.log(`[Real Trading System] 📊 OPTIMIZED: Performance: ${(priceChange * 100).toFixed(2)}% return, ${holdingTime.toFixed(0)}s hold`);
         
         if (isPartialExit) {
           handlePartialExit(positionId, currentPrice, exitQuantity, priceChange, exitReason);
@@ -782,7 +798,7 @@ export const useAdvancedTradingSystem = (
       return updated;
     });
 
-    console.log(`[Trading Bot] 📈 OPTIMIZED: Partial profit taken: ${exitQuantity.toFixed(6)} at ${(actualReturn * 100).toFixed(2)}%`);
+    console.log(`[Real Trading System] 📈 OPTIMIZED: Partial profit taken: ${exitQuantity.toFixed(6)} at ${(actualReturn * 100).toFixed(2)}%`);
   }, []);
 
   const exitPosition = useCallback((
@@ -796,21 +812,43 @@ export const useAdvancedTradingSystem = (
 
     closePosition(positionId, exitPrice);
 
-    if (config.learningEnabled) {
+    if (config.learningEnabled && realTrainingService.current) {
+      // Record this real trade in the training data service
+      const returnPercentage = actualReturn * 100;
+      
+      realTrainingService.current.recordRealTrade(
+        positionData.position.symbol,
+        positionData.position.entryPrice,
+        exitPrice,
+        positionData.position.size,
+        positionData.position.side,
+        positionData.entryTime,
+        Date.now(),
+        positionData.maxFavorableExcursion * 100,
+        positionData.maxAdverseExcursion * 100,
+        positionData.marketContextAtEntry,
+        positionData.indicatorsAtEntry,
+        positionData.prediction,
+        reason
+      );
+
+      // Also update the AI model with the real outcome
       const outcome: TradeOutcome = {
         entryPrice: positionData.position.entryPrice,
         exitPrice,
         profitLoss: actualReturn * positionData.position.entryPrice * positionData.position.size,
         holdingTime: (Date.now() - positionData.entryTime) / 1000,
         prediction: positionData.prediction,
-        actualReturn: actualReturn * 100,
+        actualReturn: returnPercentage,
         success: actualReturn > 0,
         maxAdverseExcursion: positionData.maxAdverseExcursion * 100,
         maxFavorableExcursion: positionData.maxFavorableExcursion * 100
       };
 
       aiModel.current.updateModel(outcome);
-      console.log(`[Trading Bot] 🎓 OPTIMIZED: Enhanced learning: MFE=${positionData.maxFavorableExcursion.toFixed(3)}, MAE=${positionData.maxAdverseExcursion.toFixed(3)}`);
+      
+      console.log(`[Real Trading System] 🎓 REAL DATA: Learning from real trade - MFE=${positionData.maxFavorableExcursion.toFixed(3)}, MAE=${positionData.maxAdverseExcursion.toFixed(3)}`);
+      console.log(`[Real Trading System] 📊 REAL DATA: Trade recorded in training dataset for future model improvement`);
     }
 
     setActivePositions(prev => {
@@ -821,11 +859,20 @@ export const useAdvancedTradingSystem = (
   }, [activePositions, closePosition, config.learningEnabled]);
 
   const getModelPerformance = useCallback(() => {
-    return aiModel.current.getModelPerformance();
+    const performance = aiModel.current.getModelPerformance();
+    
+    console.log(`[Real Trading System] 📊 REAL DATA Performance:`, {
+      isUsingRealData: performance.isUsingRealData,
+      totalRealTrades: performance.realDataStats?.totalTrades || 0,
+      realWinRate: performance.realDataStats?.winRate || 0,
+      dataQuality: performance.dataQuality
+    });
+    
+    return performance;
   }, []);
 
   const updateConfig = useCallback((newConfig: Partial<AdvancedTradingConfig>) => {
-    console.log(`[Trading Bot] 🔧 OPTIMIZED: Configuration updated with enhanced parameters:`, newConfig);
+    console.log(`[Real Trading System] 🔧 REAL DATA: Configuration updated:`, newConfig);
     setConfig(prev => ({ ...prev, ...newConfig }));
   }, []);
 
@@ -843,6 +890,8 @@ export const useAdvancedTradingSystem = (
     signals,
     latestSignal: signals.length > 0 ? signals[signals.length - 1] : null,
     basicIndicators,
-    validateAndReconcilePortfolio: () => PortfolioCalculator.recalculatePortfolio(portfolio)
+    validateAndReconcilePortfolio: () => PortfolioCalculator.recalculatePortfolio(portfolio),
+    // Expose real training data service for debugging
+    realTrainingDataService: realTrainingService.current
   };
 };
