@@ -241,7 +241,7 @@ export class AIPredictionModel {
       liquidityScore: 0.5,
       spreadQuality: 0.5,
       marketHour: 'NEW_YORK',
-      newsImpact: 'NEUTRAL' // Fixed: Added missing newsImpact property
+      newsImpact: 'LOW' // Fixed: Changed from 'NEUTRAL' to 'LOW' to match allowed values
     };
     
     const indicators: AdvancedIndicators = {
@@ -249,11 +249,11 @@ export class AIPredictionModel {
       bollinger_upper: outcome.entryPrice * 1.02,
       bollinger_middle: outcome.entryPrice,
       bollinger_lower: outcome.entryPrice * 0.98,
-      // ... other indicators would come from actual context
       macd: 0,
       macd_signal: 0,
       macd_histogram: 0,
-      sma_21: outcome.entryPrice, // Fixed: Changed from sma_20 to sma_21
+      sma_9: outcome.entryPrice, // Fixed: Added missing sma_9
+      sma_21: outcome.entryPrice,
       ema_12: outcome.entryPrice,
       ema_26: outcome.entryPrice,
       atr: outcome.entryPrice * 0.01,
@@ -262,7 +262,11 @@ export class AIPredictionModel {
       resistance_level: outcome.entryPrice * 1.05,
       support_level: outcome.entryPrice * 0.95,
       trend_strength: 5,
-      orderbook_pressure: 0
+      orderbook_pressure: 0,
+      stoch_k: 50,
+      stoch_d: 50,
+      williams_r: -50,
+      volume_sma: 1000
     };
 
     // Store in real training data service
