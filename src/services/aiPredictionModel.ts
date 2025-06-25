@@ -154,16 +154,18 @@ export class AIPredictionModel {
   }
 
   predict(input: PredictionInput): PredictionOutput {
+    console.log(`[AI Model] 🚀 Starting prediction with enhanced NaN protection`);
+    
     // Extract features from REAL market data only
     const features = this.extractRealFeatures(input);
     
-    console.log(`[Real AI Model] 🎯 Features extracted using REAL market data`);
+    console.log(`[AI Model] 🎯 Features extracted using REAL market data`);
     
     // Apply market regime adjustments based on REAL market context
     const regimeMultipliers = this.getRealMarketRegimeMultipliers(input.marketContext);
     const adjustedFeatures = this.applyRealRegimeMultipliers(features, regimeMultipliers);
     
-    console.log(`[Real AI Model] 🚀 Applying enhanced ${input.marketContext.marketRegime} + ${input.marketContext.volatilityRegime} volatility multipliers`);
+    console.log(`[AI Model] 🚀 Applying enhanced ${input.marketContext.marketRegime} + ${input.marketContext.volatilityRegime} volatility multipliers`);
     
     // Calculate prediction using REAL data weights
     const rawScore = this.calculateRealPredictionScore(adjustedFeatures);
@@ -171,11 +173,11 @@ export class AIPredictionModel {
     // Apply performance bias from REAL trades
     const realStats = this.realTrainingService.getRealMarketStatistics();
     const performanceBias = realStats.totalTrades > 10 ? 
-      (realStats.winRate - 0.5) * 0.1 : 0; // Only use if we have sufficient real data
+      this.safeValue((realStats.winRate - 0.5) * 0.1, 0) : 0;
     
-    console.log(`[Real AI Model] 📊 Enhanced raw score: ${rawScore.toFixed(3)}, Performance bias: ${performanceBias.toFixed(3)}`);
+    console.log(`[AI Model] 📊 Enhanced raw score: ${rawScore.toFixed(3)}, Performance bias: ${performanceBias.toFixed(3)}`);
     
-    const adjustedScore = rawScore + performanceBias;
+    const adjustedScore = this.safeValue(rawScore + performanceBias, 0);
     const probability = this.sigmoidActivation(adjustedScore);
     
     // Calculate other metrics using REAL data
@@ -186,7 +188,7 @@ export class AIPredictionModel {
     const kellyFraction = this.calculateRealKellyFraction(probability, expectedReturn, riskScore);
     const maxAdverseExcursion = this.calculateRealMAE(input.marketContext, riskScore);
     
-    console.log(`[Real AI Model] 🚀 Enhanced Kelly - Raw: ${kellyFraction.toFixed(3)}, Adjusted: ${Math.min(kellyFraction, 0.3).toFixed(3)}, Win Prob: ${probability.toFixed(3)}`);
+    console.log(`[AI Model] 🚀 Enhanced Kelly - Raw: ${kellyFraction.toFixed(3)}, Adjusted: ${Math.min(kellyFraction, 0.3).toFixed(3)}, Win Prob: ${probability.toFixed(3)}`);
     
     // Update adaptive and dynamic thresholds based on REAL performance
     this.updateRealThresholds();
@@ -206,8 +208,8 @@ export class AIPredictionModel {
       featureContributions: this.calculateRealFeatureContributions(adjustedFeatures)
     };
     
-    console.log(`[Real AI Model] 🚀 Enhanced prediction - Prob: ${probability.toFixed(3)}, Raw Score: ${rawScore.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}`);
-    console.log(`[Real AI Model] 📊 Feature contributions - Tech: ${prediction.featureContributions!.technical.toFixed(3)}, Momentum: ${prediction.featureContributions!.momentum.toFixed(3)}, Market: ${prediction.featureContributions!.market_structure.toFixed(3)}`);
+    console.log(`[AI Model] 🚀 Enhanced prediction - Prob: ${probability.toFixed(3)}, Raw Score: ${rawScore.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}`);
+    console.log(`[AI Model] 📊 Feature contributions - Tech: ${prediction.featureContributions!.technical.toFixed(3)}, Momentum: ${prediction.featureContributions!.momentum.toFixed(3)}, Market: ${prediction.featureContributions!.market_structure.toFixed(3)}`);
     
     return prediction;
   }
@@ -215,41 +217,43 @@ export class AIPredictionModel {
   private extractRealFeatures(input: PredictionInput): PredictionOutput['features'] {
     const { indicators, marketContext, orderBookImbalance, recentPriceMovement } = input;
     
-    // Technical analysis features from REAL indicators
-    const rsiSignal = indicators.rsi_14 ? (indicators.rsi_14 - 50) / 50 : 0;
+    // Technical analysis features from REAL indicators with NaN protection
+    const rsiSignal = indicators.rsi_14 ? this.safeValue((indicators.rsi_14 - 50) / 50, 0) : 0;
     const macdSignal = indicators.macd && indicators.macd_signal ? 
-      Math.tanh((indicators.macd - indicators.macd_signal) * 10) : 0;
+      this.safeValue(Math.tanh((indicators.macd - indicators.macd_signal) * 10), 0) : 0;
     const bollingerPosition = indicators.bollinger_middle && indicators.bollinger_upper && indicators.bollinger_lower ?
-      (recentPriceMovement[0] - indicators.bollinger_middle) / 
-      (indicators.bollinger_upper - indicators.bollinger_lower) : 0;
+      this.safeValue((recentPriceMovement[0] - indicators.bollinger_middle) / 
+      (indicators.bollinger_upper - indicators.bollinger_lower), 0) : 0;
     
-    const technical = (rsiSignal * 0.4 + macdSignal * 0.35 + bollingerPosition * 0.25);
+    const technical = this.safeValue(rsiSignal * 0.4 + macdSignal * 0.35 + bollingerPosition * 0.25, 0);
     
-    // Momentum features from REAL price data
+    // Momentum features from REAL price data with NaN protection
     const priceChanges = recentPriceMovement.length > 1 ? 
       recentPriceMovement.slice(1).map((price, i) => 
-        (price - recentPriceMovement[i]) / recentPriceMovement[i]
+        this.safeValue((price - recentPriceMovement[i]) / recentPriceMovement[i], 0)
       ) : [0];
     
     const avgMomentum = priceChanges.reduce((sum, change) => sum + change, 0) / priceChanges.length;
-    const momentum = Math.tanh(avgMomentum * 100);
+    const momentum = this.safeValue(Math.tanh(avgMomentum * 100), 0);
     
-    // Volatility from REAL market data
+    // Volatility from REAL market data with NaN protection
     const volatilityScore = marketContext.volatilityRegime === 'HIGH' ? 0.8 :
                            marketContext.volatilityRegime === 'MEDIUM' ? 0.5 : 0.2;
     const atrNormalized = indicators.atr && recentPriceMovement[0] ? 
-      indicators.atr / recentPriceMovement[0] : 0.01;
-    const volatility = (volatilityScore * 0.6 + Math.tanh(atrNormalized * 100) * 0.4);
+      this.safeValue(indicators.atr / recentPriceMovement[0], 0.01) : 0.01;
+    const volatility = this.safeValue(volatilityScore * 0.6 + Math.tanh(atrNormalized * 100) * 0.4, 0.2);
     
-    // Market structure from REAL market context
+    // Market structure from REAL market context with NaN protection
     const regimeScore = this.getRegimeScore(marketContext.marketRegime);
-    const liquidityImpact = (marketContext.liquidityScore - 0.5) * 2;
-    const market_structure = regimeScore * 0.7 + liquidityImpact * 0.3;
+    const liquidityImpact = this.safeValue((marketContext.liquidityScore - 0.5) * 2, 0);
+    const market_structure = this.safeValue(regimeScore * 0.7 + liquidityImpact * 0.3, 0);
     
-    // Order book depth from REAL order book data
-    const orderBookSignal = Math.tanh(orderBookImbalance * 5);
-    const spreadImpact = (marketContext.spreadQuality - 0.5) * 2;
-    const orderbook_depth = orderBookSignal * 0.6 + spreadImpact * 0.4;
+    // Order book depth from REAL order book data with NaN protection
+    const orderBookSignal = this.safeValue(Math.tanh(orderBookImbalance * 5), 0);
+    const spreadImpact = this.safeValue((marketContext.spreadQuality - 0.5) * 2, 0);
+    const orderbook_depth = this.safeValue(orderBookSignal * 0.6 + spreadImpact * 0.4, 0);
+    
+    console.log(`[AI Model] 🔧 Features calculated: tech=${technical.toFixed(3)}, momentum=${momentum.toFixed(3)}, volatility=${volatility.toFixed(3)}, market=${market_structure.toFixed(3)}, orderbook=${orderbook_depth.toFixed(3)}`);
     
     return {
       technical,
@@ -324,48 +328,61 @@ export class AIPredictionModel {
     
     Object.entries(features).forEach(([feature, value]) => {
       const weight = this.modelWeights.get(`${feature}_base`) || 0.2;
-      score += (value as number) * weight;
+      const safeFeatureValue = this.safeValue(value as number, 0);
+      score += safeFeatureValue * weight;
     });
     
-    return score;
+    const finalScore = this.safeValue(score, 0);
+    console.log(`[AI Model] 🔧 Prediction score calculated: ${finalScore.toFixed(3)}`);
+    return finalScore;
   }
 
   private calculateRealConfidence(features: any, marketContext: MarketContext): number {
     // Fix TypeScript error by ensuring we work with numbers
     const featureValues = Object.values(features) as number[];
-    const featureStrength = featureValues.reduce((sum: number, val: number) => 
-      sum + Math.abs(val), 0) / featureValues.length;
+    const safeFeatureValues = featureValues.map(val => this.safeValue(val, 0));
+    const featureStrength = safeFeatureValues.reduce((sum: number, val: number) => 
+      sum + Math.abs(val), 0) / safeFeatureValues.length;
     
     const liquidityBonus = Math.max(0, marketContext.liquidityScore - 0.5) * 0.2;
     const spreadBonus = Math.max(0, marketContext.spreadQuality - 0.5) * 0.15;
     
-    const baseConfidence = Math.tanh(featureStrength * 2) * 0.7;
-    return Math.min(0.95, baseConfidence + liquidityBonus + spreadBonus + 0.25);
+    const baseConfidence = this.safeValue(Math.tanh(featureStrength * 2) * 0.7, 0.3);
+    const finalConfidence = Math.min(0.95, baseConfidence + liquidityBonus + spreadBonus + 0.25);
+    
+    console.log(`[AI Model] 🔧 Confidence calculated: ${finalConfidence.toFixed(3)} (base: ${baseConfidence.toFixed(3)})`);
+    return finalConfidence;
   }
 
   private calculateRealExpectedReturn(probability: number, marketContext: MarketContext): number {
-    const baseReturn = (probability - 0.5) * 4.0; // Base expected return
+    const safeProbability = this.safeValue(probability, 0.5);
+    const baseReturn = (safeProbability - 0.5) * 4.0;
     
     const volatilityAdjustment = marketContext.volatilityRegime === 'HIGH' ? 1.3 :
                                 marketContext.volatilityRegime === 'MEDIUM' ? 1.0 : 0.8;
     
     const liquidityAdjustment = 0.8 + (marketContext.liquidityScore * 0.4);
     
-    return baseReturn * volatilityAdjustment * liquidityAdjustment;
+    const finalReturn = this.safeValue(baseReturn * volatilityAdjustment * liquidityAdjustment, 0.5);
+    console.log(`[AI Model] 🔧 Expected return calculated: ${finalReturn.toFixed(3)}%`);
+    return finalReturn;
   }
 
   private calculateRealRiskScore(features: any, marketContext: MarketContext): number {
     // Fix TypeScript error by ensuring we work with numbers
     const featureValues = Object.values(features) as number[];
-    const featureUncertainty = featureValues.reduce((sum: number, val: number) => 
-      sum + Math.abs(0.5 - Math.abs(val)), 0) / featureValues.length;
+    const safeFeatureValues = featureValues.map(val => this.safeValue(val, 0));
+    const featureUncertainty = safeFeatureValues.reduce((sum: number, val: number) => 
+      sum + Math.abs(0.5 - Math.abs(val)), 0) / safeFeatureValues.length;
     
     const volatilityRisk = marketContext.volatilityRegime === 'HIGH' ? 0.3 : 
                           marketContext.volatilityRegime === 'MEDIUM' ? 0.15 : 0.05;
     
     const liquidityRisk = Math.max(0, 0.5 - marketContext.liquidityScore) * 0.4;
     
-    return Math.min(0.95, featureUncertainty + volatilityRisk + liquidityRisk);
+    const finalRisk = Math.min(0.95, this.safeValue(featureUncertainty + volatilityRisk + liquidityRisk, 0.5));
+    console.log(`[AI Model] 🔧 Risk score calculated: ${finalRisk.toFixed(3)}`);
+    return finalRisk;
   }
 
   private calculateRealTimeHorizon(marketContext: MarketContext): number {
@@ -378,19 +395,32 @@ export class AIPredictionModel {
   }
 
   private calculateRealKellyFraction(probability: number, expectedReturn: number, riskScore: number): number {
-    if (expectedReturn <= 0) return 0;
+    const safeProbability = this.safeValue(probability, 0.5);
+    const safeExpectedReturn = this.safeValue(expectedReturn, 0);
+    const safeRiskScore = this.safeValue(riskScore, 0.5);
     
-    const winProbability = probability;
-    const lossProbability = 1 - probability;
-    const avgWin = Math.abs(expectedReturn);
+    if (safeExpectedReturn <= 0) {
+      console.log(`[AI Model] 🔧 Kelly: Expected return <= 0, returning 0`);
+      return 0;
+    }
+    
+    const winProbability = safeProbability;
+    const lossProbability = 1 - safeProbability;
+    const avgWin = Math.abs(safeExpectedReturn);
     const avgLoss = avgWin * 0.8; // Conservative loss estimate
     
-    if (avgLoss === 0) return 0;
+    if (avgLoss === 0) {
+      console.log(`[AI Model] 🔧 Kelly: Average loss = 0, returning 0`);
+      return 0;
+    }
     
     const kellyFraction = (winProbability * avgWin - lossProbability * avgLoss) / avgWin;
-    const riskAdjustedKelly = kellyFraction * (1 - riskScore);
+    const riskAdjustedKelly = kellyFraction * (1 - safeRiskScore);
     
-    return Math.max(0, Math.min(0.25, riskAdjustedKelly)); // Cap at 25%
+    const finalKelly = Math.max(0, Math.min(0.25, this.safeValue(riskAdjustedKelly, 0.05)));
+    console.log(`[AI Model] 🔧 Kelly fraction calculated: ${finalKelly.toFixed(3)} (raw: ${kellyFraction.toFixed(3)})`);
+    
+    return finalKelly;
   }
 
   private calculateRealMAE(marketContext: MarketContext, riskScore: number): number {
@@ -407,9 +437,11 @@ export class AIPredictionModel {
     
     Object.entries(features).forEach(([feature, value]) => {
       const weight = this.modelWeights.get(`${feature}_base`) || 0.2;
-      contributions[feature] = (value as number) * weight;
+      const safeValue = this.safeValue(value as number, 0);
+      contributions[feature] = safeValue * weight;
     });
     
+    console.log(`[AI Model] 🔧 Feature contributions calculated:`, contributions);
     return contributions;
   }
 
@@ -446,8 +478,19 @@ export class AIPredictionModel {
     console.log(`[Real AI Model] ✅ Signal generated. Total: ${this.signalCount}, Last hour: ${hourlyCount + 1}`);
   }
 
+  private safeValue(value: number, fallback: number = 0): number {
+    if (isNaN(value) || !isFinite(value)) {
+      console.log(`[AI Model] ⚠️ NaN/Infinite value detected, using fallback: ${fallback}`);
+      return fallback;
+    }
+    return value;
+  }
+
   private sigmoidActivation(x: number): number {
-    return 1 / (1 + Math.exp(-x));
+    const safeX = this.safeValue(x, 0);
+    const result = this.safeValue(1 / (1 + Math.exp(-safeX)), 0.5);
+    console.log(`[AI Model] 🔧 Sigmoid activation: ${safeX.toFixed(3)} -> ${result.toFixed(3)}`);
+    return result;
   }
 
   updateModel(outcome: TradeOutcome): void {

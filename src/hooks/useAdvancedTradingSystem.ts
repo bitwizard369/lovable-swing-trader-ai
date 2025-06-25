@@ -559,26 +559,42 @@ export const useAdvancedTradingSystem = (
 
     const basicConditions = probabilityCheck && confidenceCheck && riskCheck && positionCheck;
 
-    // More permissive enhanced conditions
+    // FIXED: Much more permissive Kelly condition with better fallbacks
+    const kellyThreshold = adaptiveThresholds?.kellyThreshold ? adaptiveThresholds.kellyThreshold * 0.3 : 0.01; // Reduced multiplier from 0.7 to 0.3
     const kellyCondition = !config.useKellyCriterion || 
       !adaptiveThresholds || 
-      prediction.kellyFraction >= (adaptiveThresholds.kellyThreshold * 0.7); // More permissive
+      prediction.kellyFraction >= kellyThreshold ||
+      (prediction.confidence > 0.6 && prediction.probability > 0.52); // Enhanced fallback
+    
     const liquidityCondition = marketContext.liquidityScore >= config.minLiquidityScore;
     const spreadCondition = marketContext.spreadQuality >= config.minSpreadQuality;
 
     const opportunityCondition = !config.enableOpportunityDetection || 
       isOptimizedMarketOpportunityDetected(prediction, marketContext);
 
+    // ENHANCED: Additional fallback for high-confidence predictions
+    const highConfidenceFallback = prediction.confidence > 0.65 && prediction.probability > 0.51; // More permissive
+    const basicVolatilityFallback = marketContext.volatilityRegime === 'HIGH' && prediction.probability > 0.505;
+
     if (config.debugMode) {
       console.log(`[OPTIMIZED Signal] 🚀 Enhanced conditions:`);
-      console.log(`  - Kelly Condition: ${kellyCondition ? '✅' : '❌'} (Kelly: ${prediction.kellyFraction.toFixed(3)})`);
+      console.log(`  - Kelly Condition: ${kellyCondition ? '✅' : '❌'} (Kelly: ${prediction.kellyFraction.toFixed(3)}, Threshold: ${kellyThreshold.toFixed(3)})`);
       console.log(`  - Liquidity: ${marketContext.liquidityScore.toFixed(3)} >= ${config.minLiquidityScore.toFixed(3)} ✓${liquidityCondition ? '✅' : '❌'}`);
       console.log(`  - Spread Quality: ${marketContext.spreadQuality.toFixed(3)} >= ${config.minSpreadQuality.toFixed(3)} ✓${spreadCondition ? '✅' : '❌'}`);
       console.log(`  - Opportunity: ${opportunityCondition ? '✅' : '❌'}`);
-      console.log(`[OPTIMIZED Signal] 🎯 Final Result: ${basicConditions && kellyCondition && liquidityCondition && spreadCondition && opportunityCondition ? 'SIGNAL GENERATED' : 'NO SIGNAL'}`);
+      console.log(`  - High Confidence Fallback: ${highConfidenceFallback ? '✅' : '❌'}`);
+      console.log(`  - Basic Volatility Fallback: ${basicVolatilityFallback ? '✅' : '❌'}`);
     }
 
-    return basicConditions && kellyCondition && liquidityCondition && spreadCondition && opportunityCondition;
+    const finalResult = (basicConditions && kellyCondition && liquidityCondition && spreadCondition && opportunityCondition) ||
+                       (basicConditions && highConfidenceFallback && liquidityCondition) ||
+                       (basicConditions && basicVolatilityFallback && liquidityCondition);
+
+    if (config.debugMode) {
+      console.log(`[OPTIMIZED Signal] 🎯 Final Result: ${finalResult ? 'SIGNAL GENERATED ✅' : 'NO SIGNAL ❌'}`);
+    }
+
+    return finalResult;
   }, [activePositions, config]);
 
   const isOptimizedMarketOpportunityDetected = useCallback((
@@ -588,24 +604,30 @@ export const useAdvancedTradingSystem = (
     if (!prediction.featureContributions) return true;
     
     const contributions = prediction.featureContributions;
-    const strongFeatures = Object.values(contributions).filter(value => Math.abs(value) > 0.06).length; // Further reduced
     
+    // ENHANCED: More aggressive opportunity detection
+    const strongFeatures = Object.values(contributions).filter(value => Math.abs(value) > 0.04).length; // Further reduced from 0.06 to 0.04
     const totalFeatureStrength = Object.values(contributions).reduce((sum, value) => sum + Math.abs(value), 0);
     
-    const hasStrongSignals = strongFeatures >= 2;
-    const hasGoodFeatureSum = totalFeatureStrength > 0.20; // Reduced threshold
-    const hasGoodMarketQuality = marketContext.liquidityScore > 0.10 && marketContext.spreadQuality > 0.25; // More permissive
+    const hasStrongSignals = strongFeatures >= 1; // Reduced from 2 to 1
+    const hasGoodFeatureSum = totalFeatureStrength > 0.15; // Reduced from 0.20 to 0.15
+    const hasGoodMarketQuality = marketContext.liquidityScore > 0.05 && marketContext.spreadQuality > 0.15; // More permissive
     
-    const highConfidenceFallback = prediction.confidence > 0.65 && prediction.probability > 0.55; // More permissive
+    // Enhanced fallbacks
+    const highConfidenceFallback = prediction.confidence > 0.55 && prediction.probability > 0.51; // More permissive
+    const momentumFallback = Math.abs(contributions.momentum || 0) > 0.03 || Math.abs(contributions.technical || 0) > 0.03;
+    const volatilityOpportunity = marketContext.volatilityRegime === 'HIGH' && prediction.probability > 0.505;
     
-    const isOpportunity = (hasStrongSignals || hasGoodFeatureSum || highConfidenceFallback) && hasGoodMarketQuality;
+    const isOpportunity = (hasStrongSignals || hasGoodFeatureSum || highConfidenceFallback || momentumFallback || volatilityOpportunity) && hasGoodMarketQuality;
     
     if (config.debugMode) {
       console.log(`[OPTIMIZED Opportunity] 🚀 Enhanced opportunity detection:`);
-      console.log(`  - Strong features (>0.06): ${strongFeatures}/2 required ✓${hasStrongSignals ? '✅' : '❌'}`);
-      console.log(`  - Total feature strength: ${totalFeatureStrength.toFixed(3)} > 0.20 ✓${hasGoodFeatureSum ? '✅' : '❌'}`);
-      console.log(`  - High confidence fallback: conf=${prediction.confidence.toFixed(3)}>0.65 & prob=${prediction.probability.toFixed(3)}>0.55 ✓${highConfidenceFallback ? '✅' : '❌'}`);
-      console.log(`  - Market quality: liquidity=${marketContext.liquidityScore.toFixed(3)}>0.10 & spread=${marketContext.spreadQuality.toFixed(3)}>0.25 ✓${hasGoodMarketQuality ? '✅' : '❌'}`);
+      console.log(`  - Strong features (>0.04): ${strongFeatures}/1 required ✓${hasStrongSignals ? '✅' : '❌'}`);
+      console.log(`  - Total feature strength: ${totalFeatureStrength.toFixed(3)} > 0.15 ✓${hasGoodFeatureSum ? '✅' : '❌'}`);
+      console.log(`  - High confidence fallback: conf=${prediction.confidence.toFixed(3)}>0.55 & prob=${prediction.probability.toFixed(3)}>0.51 ✓${highConfidenceFallback ? '✅' : '❌'}`);
+      console.log(`  - Momentum fallback: ${momentumFallback ? '✅' : '❌'}`);
+      console.log(`  - Volatility opportunity: ${volatilityOpportunity ? '✅' : '❌'}`);
+      console.log(`  - Market quality: liquidity=${marketContext.liquidityScore.toFixed(3)}>0.05 & spread=${marketContext.spreadQuality.toFixed(3)}>0.15 ✓${hasGoodMarketQuality ? '✅' : '❌'}`);
       console.log(`  - Final opportunity result: ${isOpportunity ? '✅ OPPORTUNITY DETECTED' : '❌ NO OPPORTUNITY'}`);
     }
     
@@ -628,25 +650,43 @@ export const useAdvancedTradingSystem = (
     
     const combinedBias = technicalBias + momentumBias + (vwapSignal * 0.5) + (orderBookBias * 0.3);
     
-    // More aggressive signal generation
-    if (prediction.probability > 0.501 && combinedBias > 0.03) { // More permissive
+    // ENHANCED: More aggressive signal generation with additional fallbacks
+    if (prediction.probability > 0.501 && combinedBias > 0.02) { // More permissive
       action = 'BUY';
-    } else if (prediction.probability < 0.499 && combinedBias < -0.03) { // More permissive
+    } else if (prediction.probability < 0.499 && combinedBias < -0.02) { // More permissive
       action = 'SELL';
+    } else if (prediction.confidence > 0.7 && prediction.probability > 0.52) { // High confidence fallback
+      action = 'BUY';
+    } else if (prediction.confidence > 0.7 && prediction.probability < 0.48) { // High confidence fallback
+      action = 'SELL';
+    } else if (marketContext.volatilityRegime === 'HIGH' && Math.abs(combinedBias) > 0.015) { // Volatility-based fallback
+      action = combinedBias > 0 ? 'BUY' : 'SELL';
     } else {
       action = 'HOLD';
     }
 
-    if (action === 'HOLD') return null;
+    if (action === 'HOLD') {
+      console.log(`[Trading Signal] ❌ No clear signal - Prob: ${prediction.probability.toFixed(3)}, Bias: ${combinedBias.toFixed(3)}, Conf: ${prediction.confidence.toFixed(3)}`);
+      return null;
+    }
 
-    const basePositionSizeUSD = config.riskPerTrade * 6; // Increased multiplier
+    // ENHANCED: Adaptive position sizing with Kelly fallbacks
+    let basePositionSizeUSD = config.riskPerTrade * 6; // Increased multiplier
+    
+    // If Kelly is very low, use reduced position sizing
+    if (prediction.kellyFraction < 0.02) {
+      basePositionSizeUSD = config.riskPerTrade * 3; // Reduced fallback size
+      console.log(`[Trading Signal] 📉 Using reduced position size due to low Kelly: ${basePositionSizeUSD}`);
+    }
+    
     const quantity = calculateOptimizedKellySizedPosition(basePositionSizeUSD, prediction, price);
-
     const adjustedQuantity = Math.min(quantity, (portfolio.availableBalance / price) * 0.99); // More aggressive
 
     if (adjustedQuantity !== quantity) {
-      console.log(`[Real Trading System] ⚠️ OPTIMIZED: Position size adjusted for available balance. Kelly: ${quantity.toFixed(6)}, Actual: ${adjustedQuantity.toFixed(6)}`);
+      console.log(`[Trading Signal] ⚠️ OPTIMIZED: Position size adjusted for available balance. Kelly: ${quantity.toFixed(6)}, Actual: ${adjustedQuantity.toFixed(6)}`);
     }
+
+    console.log(`[Trading Signal] ✅ Signal created: ${action} ${adjustedQuantity.toFixed(6)} at ${price.toFixed(2)} (Kelly: ${prediction.kellyFraction.toFixed(3)})`);
 
     return {
       symbol,

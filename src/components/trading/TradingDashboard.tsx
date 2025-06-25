@@ -153,7 +153,7 @@ export const TradingDashboard = ({
           </CardContent>
         </Card>
 
-        {/* AI Prediction */}
+        {/* AI Prediction - ENHANCED DEBUG INFO */}
         <Card className="col-span-1">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -163,13 +163,16 @@ export const TradingDashboard = ({
             {prediction ? (
               <div className="space-y-1">
                 <div className="text-2xl font-bold text-green-600">
-                  {formatPercent(prediction.probability)}
+                  {isNaN(prediction.probability) ? 'NaN' : formatPercent(prediction.probability)}
                 </div>
                 <div className="text-xs text-gray-600">
-                  Confidence: {formatPercent(prediction.confidence)}
+                  Confidence: {isNaN(prediction.confidence) ? 'NaN' : formatPercent(prediction.confidence)}
                 </div>
                 <div className="text-xs">
-                  Expected: {safeToFixed(prediction.expectedReturn, 2)}%
+                  Kelly: {isNaN(prediction.kellyFraction) ? 'NaN' : (prediction.kellyFraction * 100).toFixed(2)}%
+                </div>
+                <div className="text-xs">
+                  Expected: {isNaN(prediction.expectedReturn) ? 'NaN' : safeToFixed(prediction.expectedReturn, 2)}%
                 </div>
               </div>
             ) : (
@@ -198,6 +201,56 @@ export const TradingDashboard = ({
           </CardContent>
         </Card>
       </div>
+
+      {/* ENHANCED: AI Debugging Panel */}
+      <Card className="mb-6">
+        <CardContent className="p-4">
+          <h3 className="text-sm font-medium mb-3">AI Model Debug Info</h3>
+          {prediction && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+              <div>
+                <div className="text-gray-600">Probability</div>
+                <div className={`font-medium ${isNaN(prediction.probability) ? 'text-red-500' : ''}`}>
+                  {isNaN(prediction.probability) ? 'NaN ❌' : prediction.probability.toFixed(4)}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-600">Confidence</div>
+                <div className={`font-medium ${isNaN(prediction.confidence) ? 'text-red-500' : ''}`}>
+                  {isNaN(prediction.confidence) ? 'NaN ❌' : prediction.confidence.toFixed(4)}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-600">Kelly Fraction</div>
+                <div className={`font-medium ${isNaN(prediction.kellyFraction) ? 'text-red-500' : ''}`}>
+                  {isNaN(prediction.kellyFraction) ? 'NaN ❌' : prediction.kellyFraction.toFixed(4)}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-600">Risk Score</div>
+                <div className={`font-medium ${isNaN(prediction.riskScore) ? 'text-red-500' : ''}`}>
+                  {isNaN(prediction.riskScore) ? 'NaN ❌' : prediction.riskScore.toFixed(4)}
+                </div>
+              </div>
+            </div>
+          )}
+          {prediction?.featureContributions && (
+            <div className="mt-3">
+              <div className="text-gray-600 text-xs mb-2">Feature Contributions:</div>
+              <div className="grid grid-cols-5 gap-2 text-xs">
+                {Object.entries(prediction.featureContributions).map(([feature, value]) => (
+                  <div key={feature}>
+                    <div className="text-gray-500 capitalize">{feature.replace('_', ' ')}</div>
+                    <div className={`font-medium ${isNaN(value) ? 'text-red-500' : ''}`}>
+                      {isNaN(value) ? 'NaN' : value.toFixed(3)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Portfolio Debug Panel */}
       <div className="mb-6">
@@ -408,4 +461,3 @@ export const TradingDashboard = ({
     </div>
   );
 };
-
