@@ -1,4 +1,3 @@
-
 import { AdvancedIndicators, MarketContext } from './advancedTechnicalAnalysis';
 import { RealTrainingDataService } from './realTrainingDataService';
 
@@ -115,7 +114,8 @@ export class AIPredictionModel {
     // Update weights based on actual performance
     Object.entries(featurePerformance).forEach(([feature, performance]) => {
       const currentWeight = this.modelWeights.get(`${feature}_base`) || 0.2;
-      const adjustedWeight = currentWeight * (0.8 + performance * 0.4); // Adjust based on real performance
+      const performanceValue = typeof performance === 'number' ? performance : 0;
+      const adjustedWeight = currentWeight * (0.8 + performanceValue * 0.4); // Adjust based on real performance
       this.modelWeights.set(`${feature}_base`, Math.max(0.05, Math.min(0.4, adjustedWeight)));
     });
 
@@ -331,8 +331,10 @@ export class AIPredictionModel {
   }
 
   private calculateRealConfidence(features: any, marketContext: MarketContext): number {
-    const featureStrength = Object.values(features).reduce((sum: number, val: any) => 
-      sum + Math.abs(val), 0) / Object.keys(features).length;
+    // Fix TypeScript error by ensuring we work with numbers
+    const featureValues = Object.values(features) as number[];
+    const featureStrength = featureValues.reduce((sum: number, val: number) => 
+      sum + Math.abs(val), 0) / featureValues.length;
     
     const liquidityBonus = Math.max(0, marketContext.liquidityScore - 0.5) * 0.2;
     const spreadBonus = Math.max(0, marketContext.spreadQuality - 0.5) * 0.15;
@@ -353,8 +355,10 @@ export class AIPredictionModel {
   }
 
   private calculateRealRiskScore(features: any, marketContext: MarketContext): number {
-    const featureUncertainty = Object.values(features).reduce((sum: number, val: any) => 
-      sum + Math.abs(0.5 - Math.abs(val)), 0) / Object.keys(features).length;
+    // Fix TypeScript error by ensuring we work with numbers
+    const featureValues = Object.values(features) as number[];
+    const featureUncertainty = featureValues.reduce((sum: number, val: number) => 
+      sum + Math.abs(0.5 - Math.abs(val)), 0) / featureValues.length;
     
     const volatilityRisk = marketContext.volatilityRegime === 'HIGH' ? 0.3 : 
                           marketContext.volatilityRegime === 'MEDIUM' ? 0.15 : 0.05;
