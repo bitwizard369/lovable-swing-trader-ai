@@ -28,14 +28,35 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   const [orderBook, setOrderBook] = useState<OrderBook>({ bids: [], asks: [], lastUpdateId: 0 });
   const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
   const [latestUpdate, setLatestUpdate] = useState<BinanceDepthEvent | null>(null);
+  const [connectionStable, setConnectionStable] = useState(false);
   const wsService = useRef<BinanceWebSocketService | null>(null);
   const updateCountRef = useRef(0);
   const lastUpdateTimeRef = useRef(0);
+  const connectionQualityRef = useRef({ 
+    lastDataTime: 0, 
+    updateCount: 0, 
+    staleDataThreshold: 30000 // 30 seconds
+  });
+
+  // Enhanced connection quality monitoring
+  const checkConnectionQuality = useCallback(() => {
+    const now = Date.now();
+    const timeSinceLastData = now - connectionQualityRef.current.lastDataTime;
+    const isStale = timeSinceLastData > connectionQualityRef.current.staleDataThreshold;
+    
+    setConnectionStable(isConnected && !isStale && updateCountRef.current > 0);
+    
+    if (isStale && isConnected) {
+      console.log(`🔌 Connection quality degraded - ${timeSinceLastData/1000}s since last update`);
+    }
+  }, [isConnected]);
 
   // Debounced update handler to prevent excessive re-renders
   const handleDepthUpdate = useCallback((data: BinanceDepthEvent) => {
     const now = Date.now();
     updateCountRef.current++;
+    connectionQualityRef.current.lastDataTime = now;
+    connectionQualityRef.current.updateCount++;
     
     // Limit update frequency to prevent browser overload
     if (now - lastUpdateTimeRef.current < 100) { // Max 10 updates per second
@@ -44,6 +65,8 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     
     lastUpdateTimeRef.current = now;
     setLatestUpdate(data);
+    
+    console.log(`📊 WebSocket Update #${updateCountRef.current} - Price data received, connection stable`);
     
     // Update order book with memory management
     setOrderBook(prev => {
@@ -101,21 +124,30 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
 
     // Log performance metrics every 100 updates
     if (updateCountRef.current % 100 === 0) {
-      console.log(`📊 Performance: ${updateCountRef.current} updates processed`);
+      console.log(`📊 Performance: ${updateCountRef.current} updates processed, Quality score: ${connectionStable ? 'GOOD' : 'DEGRADED'}`);
     }
-  }, []);
+  }, [connectionStable]);
 
   const handleConnectionStatusChange = useCallback((status: boolean) => {
+    console.log(`🔌 Connection status changed: ${status ? 'CONNECTED' : 'DISCONNECTED'}`);
     setIsConnected(status);
+    
     if (!status) {
-      console.log('🔌 Connection lost - clearing stale data');
-      // Clear stale data when disconnected
+      console.log('🔌 Connection lost - clearing stale data and resetting quality metrics');
       setLatestUpdate(null);
+      setConnectionStable(false);
+      connectionQualityRef.current = { 
+        lastDataTime: 0, 
+        updateCount: 0, 
+        staleDataThreshold: 30000 
+      };
+    } else {
+      connectionQualityRef.current.lastDataTime = Date.now();
     }
   }, []);
 
   const connect = useCallback(() => {
-    console.log('🔄 Establishing WebSocket connection...');
+    console.log('🔄 Establishing WebSocket connection with enhanced monitoring...');
     
     // Clean up existing connection
     if (wsService.current) {
@@ -141,7 +173,13 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     // Reset state
     setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
     setLatestUpdate(null);
+    setConnectionStable(false);
     updateCountRef.current = 0;
+    connectionQualityRef.current = { 
+      lastDataTime: 0, 
+      updateCount: 0, 
+      staleDataThreshold: 30000 
+    };
   }, []);
 
   const checkAPIHealth = useCallback(async () => {
@@ -157,7 +195,7 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   }, []);
 
   useEffect(() => {
-    console.log('🚀 Initializing WebSocket connection...');
+    console.log('🚀 Initializing enhanced WebSocket connection...');
     
     // Check API health on mount
     checkAPIHealth();
@@ -167,10 +205,14 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       connect();
     }, 1000);
 
+    // Set up connection quality monitoring
+    const qualityCheckInterval = setInterval(checkConnectionQuality, 5000); // Check every 5 seconds
+
     // Cleanup function with proper resource management
     return () => {
-      console.log('🧹 Cleaning up WebSocket resources...');
+      console.log('🧹 Cleaning up enhanced WebSocket resources...');
       clearTimeout(connectTimer);
+      clearInterval(qualityCheckInterval);
       
       if (wsService.current) {
         wsService.current.cleanup();
@@ -182,20 +224,22 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
       setLatestUpdate(null);
       setApiHealthy(null);
+      setConnectionStable(false);
       updateCountRef.current = 0;
     };
-  }, [connect, checkAPIHealth]);
+  }, [connect, checkAPIHealth, checkConnectionQuality]);
 
   // Performance monitoring
   useEffect(() => {
     const performanceTimer = setInterval(() => {
       if (updateCountRef.current > 0) {
-        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}`);
+        const qualityScore = connectionStable ? 'EXCELLENT' : isConnected ? 'DEGRADED' : 'OFFLINE';
+        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Status: ${qualityScore}`);
       }
     }, 30000); // Every 30 seconds
 
     return () => clearInterval(performanceTimer);
-  }, [isConnected]);
+  }, [isConnected, connectionStable]);
 
   return {
     isConnected,
@@ -205,8 +249,9 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     connect,
     disconnect,
     checkAPIHealth,
-    // Add performance metrics for debugging
+    // Enhanced performance metrics for debugging
     updateCount: updateCountRef.current,
-    connectionStable: isConnected && updateCountRef.current > 0
+    connectionStable,
+    connectionQuality: connectionQualityRef.current
   };
 };

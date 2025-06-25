@@ -154,7 +154,7 @@ export class AIPredictionModel {
   }
 
   predict(input: PredictionInput): PredictionOutput {
-    console.log(`[AI Model] 🚀 Starting prediction with enhanced NaN protection`);
+    console.log(`[AI Model] 🚀 Starting enhanced prediction with improved Kelly calculation`);
     
     // Extract features from REAL market data only
     const features = this.extractRealFeatures(input);
@@ -185,10 +185,10 @@ export class AIPredictionModel {
     const expectedReturn = this.calculateRealExpectedReturn(probability, input.marketContext);
     const riskScore = this.calculateRealRiskScore(features, input.marketContext);
     const timeHorizon = this.calculateRealTimeHorizon(input.marketContext);
-    const kellyFraction = this.calculateRealKellyFraction(probability, expectedReturn, riskScore);
+    const kellyFraction = this.calculateEnhancedKellyFraction(probability, expectedReturn, riskScore, realStats);
     const maxAdverseExcursion = this.calculateRealMAE(input.marketContext, riskScore);
     
-    console.log(`[AI Model] 🚀 Enhanced Kelly - Raw: ${kellyFraction.toFixed(3)}, Adjusted: ${Math.min(kellyFraction, 0.3).toFixed(3)}, Win Prob: ${probability.toFixed(3)}`);
+    console.log(`[AI Model] 🚀 Enhanced Kelly - Prob: ${probability.toFixed(3)}, ExpReturn: ${expectedReturn.toFixed(3)}, Risk: ${riskScore.toFixed(3)}, Final Kelly: ${kellyFraction.toFixed(3)}`);
     
     // Update adaptive and dynamic thresholds based on REAL performance
     this.updateRealThresholds();
@@ -202,13 +202,13 @@ export class AIPredictionModel {
       expectedReturn,
       riskScore,
       timeHorizon,
-      kellyFraction: Math.min(kellyFraction, 0.3), // Cap at 30% for safety
+      kellyFraction,
       maxAdverseExcursion,
       features: adjustedFeatures,
       featureContributions: this.calculateRealFeatureContributions(adjustedFeatures)
     };
     
-    console.log(`[AI Model] 🚀 Enhanced prediction - Prob: ${probability.toFixed(3)}, Raw Score: ${rawScore.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}`);
+    console.log(`[AI Model] 🚀 Enhanced prediction - Prob: ${probability.toFixed(3)}, Conf: ${confidence.toFixed(3)}, Kelly: ${kellyFraction.toFixed(3)}, Risk: ${riskScore.toFixed(3)}`);
     console.log(`[AI Model] 📊 Feature contributions - Tech: ${prediction.featureContributions!.technical.toFixed(3)}, Momentum: ${prediction.featureContributions!.momentum.toFixed(3)}, Market: ${prediction.featureContributions!.market_structure.toFixed(3)}`);
     
     return prediction;
@@ -394,33 +394,57 @@ export class AIPredictionModel {
     return Math.round(baseHorizon * liquidityAdjustment);
   }
 
-  private calculateRealKellyFraction(probability: number, expectedReturn: number, riskScore: number): number {
+  private calculateEnhancedKellyFraction(probability: number, expectedReturn: number, riskScore: number, realStats: any): number {
     const safeProbability = this.safeValue(probability, 0.5);
     const safeExpectedReturn = this.safeValue(expectedReturn, 0);
     const safeRiskScore = this.safeValue(riskScore, 0.5);
     
-    if (safeExpectedReturn <= 0) {
-      console.log(`[AI Model] 🔧 Kelly: Expected return <= 0, returning 0`);
+    console.log(`[Kelly Enhanced] 🔢 Input validation - Prob: ${safeProbability.toFixed(3)}, ExpReturn: ${safeExpectedReturn.toFixed(3)}, Risk: ${safeRiskScore.toFixed(3)}`);
+    
+    if (safeExpectedReturn <= 0 || safeProbability <= 0.5) {
+      console.log(`[Kelly Enhanced] ❌ Negative expected return or low probability - returning 0`);
       return 0;
     }
     
+    // Enhanced Kelly calculation with real market data
     const winProbability = safeProbability;
     const lossProbability = 1 - safeProbability;
-    const avgWin = Math.abs(safeExpectedReturn);
-    const avgLoss = avgWin * 0.8; // Conservative loss estimate
+    
+    // Dynamic win/loss ratio based on expected return and market volatility
+    const baseWinLossRatio = Math.abs(safeExpectedReturn) / 100; // Convert percentage to decimal
+    const volatilityAdjustment = 1 - (safeRiskScore * 0.3); // Reduce win/loss ratio for higher risk
+    const avgWin = baseWinLossRatio * volatilityAdjustment;
+    const avgLoss = avgWin * 0.6; // More conservative loss estimate
+    
+    console.log(`[Kelly Enhanced] 🔢 Calculations - WinProb: ${winProbability.toFixed(3)}, AvgWin: ${avgWin.toFixed(3)}, AvgLoss: ${avgLoss.toFixed(3)}`);
     
     if (avgLoss === 0) {
-      console.log(`[AI Model] 🔧 Kelly: Average loss = 0, returning 0`);
-      return 0;
+      console.log(`[Kelly Enhanced] ❌ Average loss = 0, returning minimal position`);
+      return 0.01;
     }
     
-    const kellyFraction = (winProbability * avgWin - lossProbability * avgLoss) / avgWin;
-    const riskAdjustedKelly = kellyFraction * (1 - safeRiskScore);
+    // Kelly formula: (bp - q) / b where b = avgWin/avgLoss, p = winProb, q = lossProb
+    const b = avgWin / avgLoss;
+    const kellyFraction = (b * winProbability - lossProbability) / b;
     
-    const finalKelly = Math.max(0, Math.min(0.25, this.safeValue(riskAdjustedKelly, 0.05)));
-    console.log(`[AI Model] 🔧 Kelly fraction calculated: ${finalKelly.toFixed(3)} (raw: ${kellyFraction.toFixed(3)})`);
+    console.log(`[Kelly Enhanced] 🔢 Raw Kelly: ${kellyFraction.toFixed(3)} (b=${b.toFixed(3)})`);
     
-    return finalKelly;
+    // Apply risk adjustments
+    let riskAdjustedKelly = kellyFraction * (1 - safeRiskScore * 0.5);
+    
+    // Apply performance-based adjustments from real data
+    if (realStats.totalTrades > 10) {
+      const performanceMultiplier = Math.min(1.2, Math.max(0.5, realStats.winRate / 0.5));
+      riskAdjustedKelly *= performanceMultiplier;
+      console.log(`[Kelly Enhanced] 📊 Performance adjustment: ${performanceMultiplier.toFixed(3)} based on ${realStats.winRate.toFixed(3)} win rate`);
+    }
+    
+    // Conservative caps for safety
+    const cappedKelly = Math.max(0, Math.min(0.15, this.safeValue(riskAdjustedKelly, 0.01))); // Cap at 15%
+    
+    console.log(`[Kelly Enhanced] ✅ Final Kelly: ${cappedKelly.toFixed(3)} (risk-adjusted: ${riskAdjustedKelly.toFixed(3)})`);
+    
+    return cappedKelly;
   }
 
   private calculateRealMAE(marketContext: MarketContext, riskScore: number): number {

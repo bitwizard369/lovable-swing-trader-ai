@@ -1,5 +1,4 @@
 
-
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,7 @@ import { Portfolio as PortfolioType, Position, TradingSignal } from "@/types/tra
 import { AdvancedIndicators, MarketContext } from "@/services/advancedTechnicalAnalysis";
 import { PredictionOutput } from "@/services/aiPredictionModel";
 import { PortfolioDebugPanel } from "@/components/PortfolioDebugPanel";
+import { SystemHealthDebugPanel } from "@/components/SystemHealthDebugPanel";
 
 interface OrderBookLevel {
   price: number;
@@ -48,6 +48,8 @@ interface TradingDashboardProps {
   signals: TradingSignal[];
   latestSignal: TradingSignal | null;
   onConfigUpdate: (config: any) => void;
+  connectionStable?: boolean;
+  updateCount?: number;
 }
 
 export const TradingDashboard = ({
@@ -67,7 +69,9 @@ export const TradingDashboard = ({
   modelPerformance,
   signals,
   latestSignal,
-  onConfigUpdate
+  onConfigUpdate,
+  connectionStable = false,
+  updateCount = 0
 }: TradingDashboardProps) => {
   const formatCurrency = (amount: number | undefined | null) => {
     const safeAmount = amount || 0;
@@ -99,6 +103,10 @@ export const TradingDashboard = ({
     totalTrades: modelPerformance?.totalTrades || 0
   };
 
+  // Enhanced connection status with stability check
+  const realConnectionStatus = isConnected && connectionStable && latestUpdate && 
+    (Date.now() - latestUpdate.E < 30000);
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Header */}
@@ -107,27 +115,42 @@ export const TradingDashboard = ({
         <p className="text-gray-600">Real-time algorithmic trading dashboard</p>
       </div>
 
+      {/* Enhanced System Health Panel */}
+      <div className="mb-6">
+        <SystemHealthDebugPanel
+          isConnected={isConnected}
+          connectionStable={connectionStable}
+          latestUpdate={latestUpdate}
+          updateCount={updateCount}
+          apiHealthy={apiHealthy}
+        />
+      </div>
+
       {/* Main Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         
-        {/* Connection Status */}
+        {/* Enhanced Connection Status */}
         <Card className="col-span-1">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                {isConnected ? <Wifi className="h-4 w-4 text-green-500" /> : <WifiOff className="h-4 w-4 text-red-500" />}
+                {realConnectionStatus ? <Wifi className="h-4 w-4 text-green-500" /> : <WifiOff className="h-4 w-4 text-red-500" />}
                 <span className="text-sm font-medium">Connection</span>
               </div>
-              <Badge variant={isConnected ? "default" : "destructive"}>
-                {isConnected ? "Live" : "Offline"}
+              <Badge variant={realConnectionStatus ? "default" : "destructive"}>
+                {realConnectionStatus ? "LIVE" : isConnected ? "STALE" : "OFFLINE"}
               </Badge>
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span>API Health:</span>
-                <Badge variant={apiHealthy ? "default" : "destructive"} className="text-xs">
-                  {apiHealthy ? "OK" : "Error"}
+                <span>Quality:</span>
+                <Badge variant={connectionStable ? "default" : "secondary"} className="text-xs">
+                  {connectionStable ? "STABLE" : "DEGRADED"}
                 </Badge>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span>Updates:</span>
+                <span className="font-mono">{updateCount}</span>
               </div>
               <Button size="sm" onClick={isConnected ? onDisconnect : onConnect} className="w-full">
                 {isConnected ? "Disconnect" : "Connect"}
@@ -153,7 +176,7 @@ export const TradingDashboard = ({
           </CardContent>
         </Card>
 
-        {/* AI Prediction - ENHANCED DEBUG INFO */}
+        {/* Enhanced AI Prediction */}
         <Card className="col-span-1">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -172,11 +195,11 @@ export const TradingDashboard = ({
                   Kelly: {isNaN(prediction.kellyFraction) ? 'NaN' : (prediction.kellyFraction * 100).toFixed(2)}%
                 </div>
                 <div className="text-xs">
-                  Expected: {isNaN(prediction.expectedReturn) ? 'NaN' : safeToFixed(prediction.expectedReturn, 2)}%
+                  Risk: {isNaN(prediction.riskScore) ? 'NaN' : formatPercent(prediction.riskScore)}
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-gray-500">Loading...</div>
+              <div className="text-sm text-gray-500">Analyzing...</div>
             )}
           </CardContent>
         </Card>
@@ -202,34 +225,40 @@ export const TradingDashboard = ({
         </Card>
       </div>
 
-      {/* ENHANCED: AI Debugging Panel */}
+      {/* Enhanced AI Model Debug Info */}
       <Card className="mb-6">
         <CardContent className="p-4">
-          <h3 className="text-sm font-medium mb-3">AI Model Debug Info</h3>
+          <h3 className="text-sm font-medium mb-3">Enhanced AI Model Debug Info</h3>
           {prediction && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-xs">
               <div>
                 <div className="text-gray-600">Probability</div>
-                <div className={`font-medium ${isNaN(prediction.probability) ? 'text-red-500' : ''}`}>
+                <div className={`font-medium ${isNaN(prediction.probability) ? 'text-red-500' : 'text-green-600'}`}>
                   {isNaN(prediction.probability) ? 'NaN ❌' : prediction.probability.toFixed(4)}
                 </div>
               </div>
               <div>
                 <div className="text-gray-600">Confidence</div>
-                <div className={`font-medium ${isNaN(prediction.confidence) ? 'text-red-500' : ''}`}>
+                <div className={`font-medium ${isNaN(prediction.confidence) ? 'text-red-500' : 'text-blue-600'}`}>
                   {isNaN(prediction.confidence) ? 'NaN ❌' : prediction.confidence.toFixed(4)}
                 </div>
               </div>
               <div>
-                <div className="text-gray-600">Kelly Fraction</div>
-                <div className={`font-medium ${isNaN(prediction.kellyFraction) ? 'text-red-500' : ''}`}>
-                  {isNaN(prediction.kellyFraction) ? 'NaN ❌' : prediction.kellyFraction.toFixed(4)}
+                <div className="text-gray-600">Enhanced Kelly</div>
+                <div className={`font-medium ${isNaN(prediction.kellyFraction) ? 'text-red-500' : prediction.kellyFraction > 0 ? 'text-green-600' : 'text-gray-500'}`}>
+                  {isNaN(prediction.kellyFraction) ? 'NaN ❌' : `${(prediction.kellyFraction * 100).toFixed(2)}%`}
                 </div>
               </div>
               <div>
                 <div className="text-gray-600">Risk Score</div>
-                <div className={`font-medium ${isNaN(prediction.riskScore) ? 'text-red-500' : ''}`}>
-                  {isNaN(prediction.riskScore) ? 'NaN ❌' : prediction.riskScore.toFixed(4)}
+                <div className={`font-medium ${isNaN(prediction.riskScore) ? 'text-red-500' : prediction.riskScore > 0.7 ? 'text-red-600' : 'text-green-600'}`}>
+                  {isNaN(prediction.riskScore) ? 'NaN ❌' : formatPercent(prediction.riskScore)}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-600">Expected Return</div>
+                <div className={`font-medium ${isNaN(prediction.expectedReturn) ? 'text-red-500' : prediction.expectedReturn > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {isNaN(prediction.expectedReturn) ? 'NaN ❌' : `${prediction.expectedReturn.toFixed(2)}%`}
                 </div>
               </div>
             </div>
@@ -241,7 +270,7 @@ export const TradingDashboard = ({
                 {Object.entries(prediction.featureContributions).map(([feature, value]) => (
                   <div key={feature}>
                     <div className="text-gray-500 capitalize">{feature.replace('_', ' ')}</div>
-                    <div className={`font-medium ${isNaN(value) ? 'text-red-500' : ''}`}>
+                    <div className={`font-medium ${isNaN(value) ? 'text-red-500' : Math.abs(value) > 0.05 ? 'text-green-600' : 'text-gray-500'}`}>
                       {isNaN(value) ? 'NaN' : value.toFixed(3)}
                     </div>
                   </div>
