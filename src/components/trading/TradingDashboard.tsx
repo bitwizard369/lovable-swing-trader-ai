@@ -1,4 +1,5 @@
 
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,17 +69,35 @@ export const TradingDashboard = ({
   latestSignal,
   onConfigUpdate
 }: TradingDashboardProps) => {
-  const formatCurrency = (amount: number) => 
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  const formatCurrency = (amount: number | undefined | null) => {
+    const safeAmount = amount || 0;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(safeAmount);
+  };
 
-  const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
+  const formatPercent = (value: number | undefined | null) => {
+    const safeValue = value || 0;
+    return `${(safeValue * 100).toFixed(1)}%`;
+  };
+
+  const safeToFixed = (value: number | undefined | null, decimals: number = 2) => {
+    const safeValue = value || 0;
+    return safeValue.toFixed(decimals);
+  };
 
   const bestBid = orderBook.bids[0]?.price || 0;
   const bestAsk = orderBook.asks[0]?.price || 0;
   const spread = bestAsk - bestBid;
 
   const openPositions = portfolio.positions.filter(p => p.status === 'OPEN');
-  const totalUnrealizedPnL = openPositions.reduce((sum, p) => sum + p.unrealizedPnL, 0);
+  const totalUnrealizedPnL = openPositions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
+
+  // Safe model performance values with defaults
+  const safeModelPerformance = {
+    winRate: modelPerformance?.winRate || 0,
+    sharpeRatio: modelPerformance?.sharpeRatio || 0,
+    maxDrawdown: modelPerformance?.maxDrawdown || 0,
+    totalTrades: modelPerformance?.totalTrades || 0
+  };
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -150,7 +169,7 @@ export const TradingDashboard = ({
                   Confidence: {formatPercent(prediction.confidence)}
                 </div>
                 <div className="text-xs">
-                  Expected: {prediction.expectedReturn.toFixed(2)}%
+                  Expected: {safeToFixed(prediction.expectedReturn, 2)}%
                 </div>
               </div>
             ) : (
@@ -169,11 +188,11 @@ export const TradingDashboard = ({
             <div className="space-y-1">
               <div className="text-2xl font-bold">{formatCurrency((bestBid + bestAsk) / 2)}</div>
               <div className="flex justify-between text-xs">
-                <span className="text-green-600">Bid: {bestBid.toFixed(2)}</span>
-                <span className="text-red-600">Ask: {bestAsk.toFixed(2)}</span>
+                <span className="text-green-600">Bid: {safeToFixed(bestBid, 2)}</span>
+                <span className="text-red-600">Ask: {safeToFixed(bestAsk, 2)}</span>
               </div>
               <div className="text-xs text-gray-600">
-                Spread: ${spread.toFixed(2)}
+                Spread: ${safeToFixed(spread, 2)}
               </div>
             </div>
           </CardContent>
@@ -200,8 +219,8 @@ export const TradingDashboard = ({
                   <div className="text-red-500 font-medium mb-1">Asks</div>
                   {orderBook.asks.slice(0, 5).map((ask, i) => (
                     <div key={i} className="flex justify-between">
-                      <span>{ask.price.toFixed(2)}</span>
-                      <span>{ask.quantity.toFixed(4)}</span>
+                      <span>{safeToFixed(ask.price, 2)}</span>
+                      <span>{safeToFixed(ask.quantity, 4)}</span>
                     </div>
                   ))}
                 </div>
@@ -209,8 +228,8 @@ export const TradingDashboard = ({
                   <div className="text-green-500 font-medium mb-1">Bids</div>
                   {orderBook.bids.slice(0, 5).map((bid, i) => (
                     <div key={i} className="flex justify-between">
-                      <span>{bid.price.toFixed(2)}</span>
-                      <span>{bid.quantity.toFixed(4)}</span>
+                      <span>{safeToFixed(bid.price, 2)}</span>
+                      <span>{safeToFixed(bid.quantity, 4)}</span>
                     </div>
                   ))}
                 </div>
@@ -227,23 +246,23 @@ export const TradingDashboard = ({
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
                   <div className="text-gray-600">RSI</div>
-                  <div className={`font-medium ${basicIndicators.rsi > 70 ? 'text-red-500' : basicIndicators.rsi < 30 ? 'text-green-500' : ''}`}>
-                    {basicIndicators.rsi.toFixed(1)}
+                  <div className={`font-medium ${(basicIndicators.rsi || 0) > 70 ? 'text-red-500' : (basicIndicators.rsi || 0) < 30 ? 'text-green-500' : ''}`}>
+                    {safeToFixed(basicIndicators.rsi, 1)}
                   </div>
                 </div>
                 <div>
                   <div className="text-gray-600">MACD</div>
-                  <div className={`font-medium ${basicIndicators.macd > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {basicIndicators.macd.toFixed(3)}
+                  <div className={`font-medium ${(basicIndicators.macd || 0) > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {safeToFixed(basicIndicators.macd, 3)}
                   </div>
                 </div>
                 <div>
                   <div className="text-gray-600">EMA Fast</div>
-                  <div className="font-medium">{basicIndicators.ema_fast.toFixed(2)}</div>
+                  <div className="font-medium">{safeToFixed(basicIndicators.ema_fast, 2)}</div>
                 </div>
                 <div>
                   <div className="text-gray-600">EMA Slow</div>
-                  <div className="font-medium">{basicIndicators.ema_slow.toFixed(2)}</div>
+                  <div className="font-medium">{safeToFixed(basicIndicators.ema_slow, 2)}</div>
                 </div>
               </div>
             )}
@@ -303,10 +322,10 @@ export const TradingDashboard = ({
                         {position.side}
                       </Badge>
                       <span className="font-medium">{position.symbol}</span>
-                      <span>{position.size.toFixed(4)}</span>
+                      <span>{safeToFixed(position.size, 4)}</span>
                     </div>
                     <div className="text-right">
-                      <div className={`font-medium ${position.unrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <div className={`font-medium ${(position.unrealizedPnL || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {formatCurrency(position.unrealizedPnL)}
                       </div>
                       <div className="text-gray-500">{formatCurrency(position.entryPrice)}</div>
@@ -344,7 +363,7 @@ export const TradingDashboard = ({
                     </div>
                     <div className="text-right">
                       <div className="font-medium">{formatCurrency(signal.price)}</div>
-                      <div className="text-gray-500">{Math.round(signal.confidence * 100)}%</div>
+                      <div className="text-gray-500">{Math.round((signal.confidence || 0) * 100)}%</div>
                     </div>
                   </div>
                 ))
@@ -362,25 +381,25 @@ export const TradingDashboard = ({
             <div className="text-center">
               <div className="text-gray-600">Win Rate</div>
               <div className="text-lg font-bold text-green-600">
-                {formatPercent(modelPerformance.winRate)}
+                {formatPercent(safeModelPerformance.winRate)}
               </div>
             </div>
             <div className="text-center">
               <div className="text-gray-600">Sharpe Ratio</div>
               <div className="text-lg font-bold">
-                {modelPerformance.sharpeRatio.toFixed(2)}
+                {safeToFixed(safeModelPerformance.sharpeRatio, 2)}
               </div>
             </div>
             <div className="text-center">
               <div className="text-gray-600">Max Drawdown</div>
               <div className="text-lg font-bold text-red-600">
-                {formatPercent(modelPerformance.maxDrawdown)}
+                {formatPercent(safeModelPerformance.maxDrawdown)}
               </div>
             </div>
             <div className="text-center">
               <div className="text-gray-600">Total Trades</div>
               <div className="text-lg font-bold">
-                {modelPerformance.totalTrades}
+                {safeModelPerformance.totalTrades}
               </div>
             </div>
           </div>
@@ -389,3 +408,4 @@ export const TradingDashboard = ({
     </div>
   );
 };
+
