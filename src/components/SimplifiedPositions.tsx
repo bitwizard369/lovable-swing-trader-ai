@@ -213,7 +213,7 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{position.symbol.toUpperCase()}</span>
-                        <Badge variant={position.side === 'BUY' ? 'default' : 'destructive'} size="sm">
+                        <Badge variant={position.side === 'BUY' ? 'default' : 'destructive'}>
                           {position.side}
                         </Badge>
                         {exitReasonDisplay && (
