@@ -25,12 +25,17 @@ export const SimplifiedMetrics = ({ portfolio, modelPerformance }: SimplifiedMet
   const totalUnrealizedPnL = openPositions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
   const equityChange = portfolio.baseCapital > 0 ? ((portfolio.equity - portfolio.baseCapital) / portfolio.baseCapital) * 100 : 0;
 
-  const safeModelPerformance = {
-    winRate: modelPerformance?.winRate || 0,
-    sharpeRatio: modelPerformance?.sharpeRatio || 0,
-    maxDrawdown: modelPerformance?.maxDrawdown || 0,
-    totalTrades: modelPerformance?.totalTrades || 0
-  };
+  // Use REAL data from model performance - NO FALLBACK VALUES
+  const realWinRate = modelPerformance?.realDataStats?.winRate || 0;
+  const realMaxDrawdown = modelPerformance?.realDataStats?.maxDrawdown || 0;
+  const realTotalTrades = modelPerformance?.realDataStats?.totalTrades || 0;
+
+  console.log('📊 SimplifiedMetrics - Real Data Stats:', {
+    winRate: realWinRate,
+    maxDrawdown: realMaxDrawdown,
+    totalTrades: realTotalTrades,
+    isUsingRealData: modelPerformance?.isUsingRealData
+  });
 
   const metrics = [
     {
@@ -48,15 +53,15 @@ export const SimplifiedMetrics = ({ portfolio, modelPerformance }: SimplifiedMet
       color: totalUnrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'
     },
     {
-      title: "Win Rate",
-      value: formatPercent(safeModelPerformance.winRate),
-      subValue: `${safeModelPerformance.totalTrades} trades`,
+      title: "Win Rate (Real)",
+      value: formatPercent(realWinRate),
+      subValue: `${realTotalTrades} real trades`,
       icon: Target,
-      color: safeModelPerformance.winRate >= 0.6 ? 'text-green-600' : 'text-yellow-600'
+      color: realWinRate >= 0.5 ? 'text-green-600' : realWinRate >= 0.4 ? 'text-yellow-600' : 'text-red-600'
     },
     {
-      title: "Max Drawdown",
-      value: formatPercent(Math.abs(safeModelPerformance.maxDrawdown)),
+      title: "Max Drawdown (Real)",
+      value: formatPercent(Math.abs(realMaxDrawdown)),
       subValue: "Peak to trough",
       icon: Percent,
       color: 'text-red-600'

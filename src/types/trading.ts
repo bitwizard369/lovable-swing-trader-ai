@@ -1,3 +1,4 @@
+
 export interface Position {
   id: string;
   symbol: string;
@@ -9,6 +10,12 @@ export interface Position {
   realizedPnL: number;
   timestamp: number;
   status: 'OPEN' | 'CLOSED' | 'PENDING';
+  exitReason?: 'TAKE_PROFIT' | 'STOP_LOSS' | 'DYNAMIC_EXIT' | 'TIME_LIMIT' | 'MANUAL' | 'RISK_MANAGEMENT';
+  exitTime?: number;
+  maxHoldTime?: number;
+  dynamicProfitTarget?: number;
+  dynamicStopLoss?: number;
+  timeRemaining?: number;
 }
 
 export interface Portfolio {
@@ -48,4 +55,5 @@ export interface TradingConfig {
   takeProfitPercentage: number;
   maxOpenPositions: number;
   riskPerTrade: number;
+  maxHoldTime: number; // in seconds
 }
