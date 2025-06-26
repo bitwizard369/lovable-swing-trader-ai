@@ -12,9 +12,7 @@ const Index = () => {
     latestUpdate,
     connect,
     disconnect,
-    checkAPIHealth,
-    connectionStable,
-    updateCount
+    checkAPIHealth
   } = useBinanceWebSocket('btcusdt');
 
   const {
@@ -37,10 +35,6 @@ const Index = () => {
 
   const modelPerformance = getModelPerformance();
 
-  useEffect(() => {
-    console.log(`🚀 Enhanced Trading Dashboard - Connection: ${isConnected ? 'CONNECTED' : 'DISCONNECTED'}, Stable: ${connectionStable}, Updates: ${updateCount}`);
-  }, [isConnected, connectionStable, updateCount]);
-
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <TradingDashboard
@@ -61,8 +55,6 @@ const Index = () => {
         signals={signals}
         latestSignal={latestSignal}
         onConfigUpdate={updateConfig}
-        connectionStable={connectionStable}
-        updateCount={updateCount}
       />
     </div>
   );
