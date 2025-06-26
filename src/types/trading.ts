@@ -10,7 +10,7 @@ export interface Position {
   realizedPnL: number;
   timestamp: number;
   status: 'OPEN' | 'CLOSED' | 'PENDING';
-  exitReason?: 'TAKE_PROFIT' | 'STOP_LOSS' | 'DYNAMIC_EXIT' | 'TIME_LIMIT' | 'MANUAL' | 'RISK_MANAGEMENT';
+  exitReason?: 'TAKE_PROFIT' | 'STOP_LOSS' | 'DYNAMIC_EXIT' | 'MEAN_REVERSION' | 'SUPPORT_RESISTANCE' | 'VWAP_DEVIATION' | 'TIME_LIMIT' | 'MANUAL' | 'RISK_MANAGEMENT';
   exitTime?: number;
   maxHoldTime?: number;
   dynamicProfitTarget?: number;
@@ -56,4 +56,9 @@ export interface TradingConfig {
   maxOpenPositions: number;
   riskPerTrade: number;
   maxHoldTime: number; // in seconds
+  useMeanReversionTPSL: boolean; // Enable mean reversion system
+  meanReversionSensitivity: number; // 0.1 to 2.0, higher = more sensitive to mean reversion
+  supportResistanceStrength: number; // 0.1 to 2.0, higher = stronger S/R influence
+  vwapDeviationThreshold: number; // 0.5 to 3.0, VWAP deviation multiplier
+  trailingStopATRMultiplier: number; // 1.0 to 4.0, ATR multiplier for trailing stops
 }

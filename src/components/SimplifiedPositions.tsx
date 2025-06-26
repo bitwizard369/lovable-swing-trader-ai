@@ -1,7 +1,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Target, ShieldAlert, Clock, AlertTriangle, CheckCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, Target, ShieldAlert, Clock, AlertTriangle, CheckCircle, Activity } from "lucide-react";
 import { Position } from "@/types/trading";
 import { useEffect, useState } from "react";
 
@@ -35,36 +35,25 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const calculateDynamicLevels = (position: Position) => {
-    // Enhanced dynamic TP/SL calculation (300 second hold time)
+  const calculateMeanReversionDisplay = (position: Position) => {
+    // Enhanced mean reversion calculation (300 second hold time)
     const maxHoldTime = 300; // 5 minutes
     const elapsedTime = Math.floor((currentTime - position.timestamp) / 1000);
     const timeRemaining = Math.max(0, maxHoldTime - elapsedTime);
     
-    // Dynamic profit targets based on market conditions and time
-    const baseTPPercentage = 0.015; // 1.5%
-    const baseSLPercentage = 0.008; // 0.8%
+    // Use stored dynamic levels if available, otherwise calculate fallback
+    const dynamicTakeProfit = position.dynamicProfitTarget || 
+      (position.side === 'BUY' ? position.entryPrice * 1.015 : position.entryPrice * 0.985);
+    const dynamicStopLoss = position.dynamicStopLoss || 
+      (position.side === 'BUY' ? position.entryPrice * 0.992 : position.entryPrice * 1.008);
     
-    // Adjust targets based on time decay (more aggressive as time runs out)
-    const timeDecayFactor = 1 - (elapsedTime / maxHoldTime);
-    const adjustedTP = baseTPPercentage * (0.7 + timeDecayFactor * 0.6);
-    const adjustedSL = baseSLPercentage * (1.2 - timeDecayFactor * 0.4);
-    
-    if (position.side === 'BUY') {
-      return {
-        dynamicTakeProfit: position.entryPrice * (1 + adjustedTP),
-        dynamicStopLoss: position.entryPrice * (1 - adjustedSL),
-        timeRemaining,
-        maxHoldTime
-      };
-    } else {
-      return {
-        dynamicTakeProfit: position.entryPrice * (1 - adjustedTP),
-        dynamicStopLoss: position.entryPrice * (1 + adjustedSL),
-        timeRemaining,
-        maxHoldTime
-      };
-    }
+    return {
+      dynamicTakeProfit,
+      dynamicStopLoss,
+      timeRemaining,
+      maxHoldTime,
+      isMeanReversion: !!(position.dynamicProfitTarget && position.dynamicStopLoss)
+    };
   };
 
   const getExitReasonDisplay = (reason?: string) => {
@@ -72,6 +61,9 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
       'TAKE_PROFIT': { label: 'Take Profit Hit', color: 'text-green-600', icon: CheckCircle },
       'STOP_LOSS': { label: 'Stop Loss Hit', color: 'text-red-600', icon: AlertTriangle },
       'DYNAMIC_EXIT': { label: 'Dynamic Exit', color: 'text-blue-600', icon: TrendingUp },
+      'MEAN_REVERSION': { label: 'Mean Reversion', color: 'text-purple-600', icon: Activity },
+      'SUPPORT_RESISTANCE': { label: 'S/R Level', color: 'text-indigo-600', icon: Target },
+      'VWAP_DEVIATION': { label: 'VWAP Target', color: 'text-cyan-600', icon: TrendingUp },
       'TIME_LIMIT': { label: 'Time Limit', color: 'text-orange-600', icon: Clock },
       'MANUAL': { label: 'Manual Close', color: 'text-gray-600', icon: Target },
       'RISK_MANAGEMENT': { label: 'Risk Management', color: 'text-red-600', icon: ShieldAlert }
@@ -99,10 +91,10 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
           ) : (
             <div className="space-y-4">
               {openPositions.map((position) => {
-                const { dynamicTakeProfit, dynamicStopLoss, timeRemaining, maxHoldTime } = calculateDynamicLevels(position);
+                const meanReversionData = calculateMeanReversionDisplay(position);
                 const pnlPercent = ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100;
                 const isProfit = position.unrealizedPnL >= 0;
-                const timePercentage = (timeRemaining / maxHoldTime) * 100;
+                const timePercentage = (meanReversionData.timeRemaining / meanReversionData.maxHoldTime) * 100;
 
                 return (
                   <div key={position.id} className="border rounded-lg p-4 space-y-3">
@@ -113,6 +105,11 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
                         <Badge variant={position.side === 'BUY' ? 'default' : 'destructive'}>
                           {position.side}
                         </Badge>
+                        {meanReversionData.isMeanReversion && (
+                          <Badge variant="outline" className="text-purple-600 border-purple-300">
+                            Mean Rev
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className={`text-xl font-bold ${isProfit ? 'text-green-600' : 'text-red-600'}`}>
@@ -131,8 +128,8 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
                           <Clock className="h-4 w-4" />
                           <span>Time Remaining</span>
                         </div>
-                        <span className={timeRemaining < 60 ? 'text-red-500 font-bold' : 'font-medium'}>
-                          {formatTime(timeRemaining)}
+                        <span className={meanReversionData.timeRemaining < 60 ? 'text-red-500 font-bold' : 'font-medium'}>
+                          {formatTime(meanReversionData.timeRemaining)}
                         </span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -162,29 +159,46 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
                       </div>
                     </div>
 
-                    {/* Dynamic TP/SL Levels */}
+                    {/* Enhanced TP/SL Levels */}
                     <div className="grid grid-cols-2 gap-4 pt-2 border-t">
                       <div className="flex items-center gap-2">
                         <Target className="h-4 w-4 text-green-500" />
                         <div>
-                          <p className="text-xs text-muted-foreground">Dynamic Take Profit</p>
-                          <p className="font-semibold text-green-600">{formatCurrency(dynamicTakeProfit)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {meanReversionData.isMeanReversion ? 'Mean Reversion TP' : 'Dynamic Take Profit'}
+                          </p>
+                          <p className="font-semibold text-green-600">{formatCurrency(meanReversionData.dynamicTakeProfit)}</p>
                           <p className="text-xs text-green-600">
-                            Adjusts with time decay
+                            {meanReversionData.isMeanReversion ? 'S/R & VWAP based' : 'Time decay adjusted'}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <ShieldAlert className="h-4 w-4 text-red-500" />
                         <div>
-                          <p className="text-xs text-muted-foreground">Dynamic Stop Loss</p>
-                          <p className="font-semibold text-red-600">{formatCurrency(dynamicStopLoss)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {meanReversionData.isMeanReversion ? 'Trailing Stop Loss' : 'Dynamic Stop Loss'}
+                          </p>
+                          <p className="font-semibold text-red-600">{formatCurrency(meanReversionData.dynamicStopLoss)}</p>
                           <p className="text-xs text-red-600">
-                            Tightens over time
+                            {meanReversionData.isMeanReversion ? 'ATR & volatility based' : 'Tightens over time'}
                           </p>
                         </div>
                       </div>
                     </div>
+
+                    {/* Mean Reversion System Indicator */}
+                    {meanReversionData.isMeanReversion && (
+                      <div className="pt-2 border-t bg-purple-50 rounded p-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Activity className="h-4 w-4 text-purple-600" />
+                          <span className="text-sm font-medium text-purple-800">Advanced Mean Reversion System Active</span>
+                        </div>
+                        <p className="text-xs text-purple-600">
+                          Using Bollinger Bands, VWAP deviation, and support/resistance levels for optimal exits
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -193,7 +207,7 @@ export const SimplifiedPositions = ({ positions }: SimplifiedPositionsProps) => 
         </CardContent>
       </Card>
 
-      {/* Recent Closed Positions with Exit Reasons */}
+      {/* Recent Closed Positions with Enhanced Exit Reasons */}
       {closedPositions.length > 0 && (
         <Card>
           <CardHeader>

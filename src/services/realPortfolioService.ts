@@ -1,5 +1,6 @@
-
 import { Portfolio, Position } from '@/types/trading';
+import { MeanReversionTPSLService, MeanReversionLevels } from './meanReversionTPSLService';
+import { AdvancedIndicators, MarketContext } from './advancedTechnicalAnalysis';
 
 interface RealAccountData {
   accountBalance: number;
@@ -14,14 +15,17 @@ export class RealPortfolioService {
   private accountData: RealAccountData;
   private updateCallbacks: ((portfolio: Portfolio) => void)[] = [];
   private positionTimers: Map<string, NodeJS.Timeout> = new Map();
+  private meanReversionService: MeanReversionTPSLService;
+  private positionMeanReversionLevels: Map<string, MeanReversionLevels> = new Map();
 
   private constructor() {
     // Initialize with ONLY the $10K demo balance - NO FALLBACK DATA
     this.accountData = this.initializeDemoAccount();
+    this.meanReversionService = new MeanReversionTPSLService();
     
     console.log('📊 Real Portfolio Service initialized with DEMO MODE ONLY');
     console.log('💰 Starting balance: $10,000 (Paper money for real market data testing)');
-    console.log('⏱️ Position hold time: 300 seconds (5 minutes)');
+    console.log('🎯 Mean Reversion TP/SL system active');
     console.log('🚨 NO synthetic or fallback data will be used');
   }
 
@@ -69,7 +73,11 @@ export class RealPortfolioService {
       .reduce((sum, pos) => sum + (pos.realizedPnL || 0), 0);
   }
 
-  public addPosition(position: Omit<Position, 'id' | 'unrealizedPnL' | 'realizedPnL' | 'status' | 'maxHoldTime'>): Position | null {
+  public addPosition(
+    position: Omit<Position, 'id' | 'unrealizedPnL' | 'realizedPnL' | 'status' | 'maxHoldTime'>,
+    indicators?: AdvancedIndicators,
+    marketContext?: MarketContext
+  ): Position | null {
     const positionValue = position.size * position.entryPrice;
     
     // Real balance validation with demo money
@@ -92,10 +100,26 @@ export class RealPortfolioService {
     this.accountData.positions.push(newPosition);
     this.accountData.lastUpdated = Date.now();
 
-    // Set up auto-close timer for 300 seconds
+    // Calculate mean reversion levels if indicators provided
+    if (indicators && marketContext) {
+      const meanReversionLevels = this.meanReversionService.calculateMeanReversionLevels(
+        newPosition,
+        indicators,
+        marketContext
+      );
+      this.positionMeanReversionLevels.set(newPosition.id, meanReversionLevels);
+      
+      // Store dynamic levels in position
+      newPosition.dynamicProfitTarget = meanReversionLevels.takeProfitPrice;
+      newPosition.dynamicStopLoss = meanReversionLevels.stopLossPrice;
+      
+      console.log(`🎯 Mean reversion levels set: TP=${meanReversionLevels.takeProfitPrice.toFixed(2)}, SL=${meanReversionLevels.stopLossPrice.toFixed(2)}`);
+    }
+
+    // Set up auto-close timer for 300 seconds (fallback)
     this.setupPositionTimer(newPosition);
 
-    console.log(`✅ Demo position added: ${newPosition.side} ${newPosition.size} at ${newPosition.entryPrice} (300s hold time)`);
+    console.log(`✅ Demo position added: ${newPosition.side} ${newPosition.size} at ${newPosition.entryPrice}`);
     this.notifySubscribers();
     
     return newPosition;
@@ -149,6 +173,13 @@ export class RealPortfolioService {
     this.accountData.accountBalance += realizedPnL;
     this.accountData.availableBalance += realizedPnL;
     this.accountData.lastUpdated = Date.now();
+
+    // Log exit effectiveness for learning
+    const holdTime = (Date.now() - position.timestamp) / 1000;
+    // Note: marketContext would need to be passed in for full logging
+    
+    // Clean up mean reversion levels
+    this.positionMeanReversionLevels.delete(positionId);
     
     console.log(`✅ Demo position closed: P&L ${realizedPnL.toFixed(6)} (${exitReason})`);
     this.notifySubscribers();
@@ -156,7 +187,7 @@ export class RealPortfolioService {
     return true;
   }
 
-  public updatePositionPrice(positionId: string, currentPrice: number): void {
+  public updatePositionPrice(positionId: string, currentPrice: number, indicators?: AdvancedIndicators, marketContext?: MarketContext): void {
     const position = this.accountData.positions.find(p => p.id === positionId && p.status === 'OPEN');
     if (!position) return;
 
@@ -168,12 +199,76 @@ export class RealPortfolioService {
       ? (currentPrice - position.entryPrice) * position.size
       : (position.entryPrice - currentPrice) * position.size;
 
-    // Check for dynamic exit conditions
-    this.checkDynamicExitConditions(position);
+    // Update price data for mean reversion service
+    this.meanReversionService.updatePriceData(currentPrice);
+
+    // Check for mean reversion exit conditions
+    if (indicators && marketContext) {
+      this.checkMeanReversionExitConditions(position, indicators, marketContext);
+    } else {
+      // Fallback to simple dynamic exit if no indicators
+      this.checkDynamicExitConditions(position);
+    }
 
     // Only notify if price changed significantly to avoid excessive updates
     if (Math.abs(currentPrice - previousPrice) > previousPrice * 0.001) { // 0.1% change
       this.notifySubscribers();
+    }
+  }
+
+  private checkMeanReversionExitConditions(position: Position, indicators: AdvancedIndicators, marketContext: MarketContext): void {
+    const meanReversionLevels = this.positionMeanReversionLevels.get(position.id);
+    if (!meanReversionLevels) return;
+
+    const currentPrice = position.currentPrice;
+    
+    // Check for take profit
+    if (position.side === 'BUY' && currentPrice >= meanReversionLevels.takeProfitPrice) {
+      console.log(`🎯 Mean reversion take profit hit for ${position.id}: ${currentPrice.toFixed(2)} >= ${meanReversionLevels.takeProfitPrice.toFixed(2)}`);
+      this.closePosition(position.id, currentPrice, 'TAKE_PROFIT');
+      return;
+    }
+    
+    if (position.side === 'SELL' && currentPrice <= meanReversionLevels.takeProfitPrice) {
+      console.log(`🎯 Mean reversion take profit hit for ${position.id}: ${currentPrice.toFixed(2)} <= ${meanReversionLevels.takeProfitPrice.toFixed(2)}`);
+      this.closePosition(position.id, currentPrice, 'TAKE_PROFIT');
+      return;
+    }
+
+    // Check for stop loss
+    if (position.side === 'BUY' && currentPrice <= meanReversionLevels.stopLossPrice) {
+      console.log(`🛡️ Mean reversion stop loss hit for ${position.id}: ${currentPrice.toFixed(2)} <= ${meanReversionLevels.stopLossPrice.toFixed(2)}`);
+      this.closePosition(position.id, currentPrice, 'STOP_LOSS');
+      return;
+    }
+    
+    if (position.side === 'SELL' && currentPrice >= meanReversionLevels.stopLossPrice) {
+      console.log(`🛡️ Mean reversion stop loss hit for ${position.id}: ${currentPrice.toFixed(2)} >= ${meanReversionLevels.stopLossPrice.toFixed(2)}`);
+      this.closePosition(position.id, currentPrice, 'STOP_LOSS');
+      return;
+    }
+
+    // Update trailing stop if applicable
+    if (meanReversionLevels.trailingStopPrice) {
+      const newTrailingStop = this.calculateNewTrailingStop(position, indicators, marketContext);
+      if (newTrailingStop !== meanReversionLevels.trailingStopPrice) {
+        meanReversionLevels.trailingStopPrice = newTrailingStop;
+        console.log(`📈 Updated trailing stop for ${position.id}: ${newTrailingStop.toFixed(2)}`);
+      }
+    }
+  }
+
+  private calculateNewTrailingStop(position: Position, indicators: AdvancedIndicators, marketContext: MarketContext): number {
+    const atr = indicators.atr || (position.currentPrice * 0.01);
+    const volatilityMultiplier = marketContext.volatilityRegime === 'HIGH' ? 2.5 :
+                                marketContext.volatilityRegime === 'MEDIUM' ? 1.8 : 1.2;
+
+    const trailingDistance = atr * volatilityMultiplier;
+
+    if (position.side === 'BUY') {
+      return position.currentPrice - trailingDistance;
+    } else {
+      return position.currentPrice + trailingDistance;
     }
   }
 
@@ -240,9 +335,14 @@ export class RealPortfolioService {
     return { ...this.accountData };
   }
 
+  public getMeanReversionService(): MeanReversionTPSLService {
+    return this.meanReversionService;
+  }
+
   // Cleanup method to clear all timers
   public cleanup(): void {
     this.positionTimers.forEach(timer => clearTimeout(timer));
     this.positionTimers.clear();
+    this.positionMeanReversionLevels.clear();
   }
 }
