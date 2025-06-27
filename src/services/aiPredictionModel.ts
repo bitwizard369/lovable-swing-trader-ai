@@ -1,4 +1,3 @@
-
 import { AdvancedIndicators, MarketContext } from './advancedTechnicalAnalysis';
 import { RealTrainingDataService } from './realTrainingDataService';
 import { MeanReversionTPSLService } from './meanReversionTPSLService';
@@ -570,15 +569,27 @@ export class AIPredictionModel {
       marketHour = 'LONDON';
     } else if (currentHour >= 14 && currentHour < 22) {
       marketHour = 'NEW_YORK';
-    } else if (currentHour >= 22 || currentHour < 8) {
+    } else if (currentHour >= 22 || currentHour < 8) {  
       marketHour = 'ASIA';
     } else {
       marketHour = 'OVERLAP';
     }
     
+    // Determine proper volatility regime based on market conditions
+    let volatilityRegime: MarketContext['volatilityRegime'];
+    const marketVolatility = Math.abs(outcome.actualReturn);
+    
+    if (marketVolatility > 2.0) {
+      volatilityRegime = 'HIGH';
+    } else if (marketVolatility > 1.0) {
+      volatilityRegime = 'MEDIUM';
+    } else {
+      volatilityRegime = 'LOW';
+    }
+    
     const marketContext: MarketContext = {
       marketRegime: 'SIDEWAYS_QUIET',
-      volatilityRegime: 'MEDIUM' as const,
+      volatilityRegime: volatilityRegime,
       liquidityScore: 0.5,
       spreadQuality: 0.5,
       marketHour: marketHour,
