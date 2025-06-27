@@ -1,3 +1,4 @@
+
 import { AdvancedIndicators, MarketContext } from './advancedTechnicalAnalysis';
 import { RealTrainingDataService } from './realTrainingDataService';
 import { MeanReversionTPSLService } from './meanReversionTPSLService';
@@ -560,13 +561,27 @@ export class AIPredictionModel {
   updateModel(outcome: TradeOutcome): void {
     console.log(`[Enhanced AI Model] 📚 Learning from REAL trade outcome: ${outcome.success ? 'WIN' : 'LOSS'}, Return: ${outcome.actualReturn.toFixed(2)}%`);
     
-    // Log exit effectiveness for learning - create a proper MarketContext object
+    // Log exit effectiveness for learning - create a proper MarketContext object with correct types
+    const currentHour = new Date().getHours();
+    let marketHour: MarketContext['marketHour'];
+    
+    // Map hour to market session
+    if (currentHour >= 8 && currentHour < 16) {
+      marketHour = 'LONDON';
+    } else if (currentHour >= 14 && currentHour < 22) {
+      marketHour = 'NEW_YORK';
+    } else if (currentHour >= 22 || currentHour < 8) {
+      marketHour = 'ASIA';
+    } else {
+      marketHour = 'OVERLAP';
+    }
+    
     const marketContext: MarketContext = {
       marketRegime: 'SIDEWAYS_QUIET', // Default fallback regime
       volatilityRegime: 'MEDIUM', // Default fallback volatility
       liquidityScore: 0.5,
       spreadQuality: 0.5,
-      marketHour: new Date().getHours(),
+      marketHour: marketHour,
       newsImpact: 0.0
     };
     
