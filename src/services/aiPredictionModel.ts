@@ -1,3 +1,4 @@
+
 import { AdvancedIndicators, MarketContext } from './advancedTechnicalAnalysis';
 import { RealTrainingDataService } from './realTrainingDataService';
 import { MeanReversionTPSLService } from './meanReversionTPSLService';
@@ -576,8 +577,8 @@ export class AIPredictionModel {
     }
     
     const marketContext: MarketContext = {
-      marketRegime: 'SIDEWAYS_QUIET', // Default fallback regime
-      volatilityRegime: 'MEDIUM' as const, // Ensure this is treated as string literal
+      marketRegime: 'SIDEWAYS_QUIET',
+      volatilityRegime: 'MEDIUM' as const,
       liquidityScore: 0.5,
       spreadQuality: 0.5,
       marketHour: marketHour,
