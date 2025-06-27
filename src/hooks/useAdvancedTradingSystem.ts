@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdvancedTechnicalAnalysis, AdvancedIndicators, MarketContext } from '@/services/advancedTechnicalAnalysis';
 import { AIPredictionModel, PredictionOutput, TradeOutcome } from '@/services/aiPredictionModel';
@@ -84,7 +83,6 @@ export const useAdvancedTradingSystem = (
     takeProfitPercentage: 2.0, // Reduced from 2.5
     maxOpenPositions: 100,
     riskPerTrade: 150,     // Increased from 100
-    maxHoldTime: 300,      // Added missing property - 5 minutes
     enableProfitLock: true,
     profitLockPercentage: 0.8, // Reduced from 1.0
     minProfitLockThreshold: 0,
