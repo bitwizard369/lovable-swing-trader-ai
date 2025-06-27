@@ -13,7 +13,7 @@ export interface MeanReversionLevels {
 }
 
 export interface LearningData {
-  signalAttempt: {
+  signalAttempt?: {
     timestamp: number;
     indicators: AdvancedIndicators;
     marketContext: MarketContext;

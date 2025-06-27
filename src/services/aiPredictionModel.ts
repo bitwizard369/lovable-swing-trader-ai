@@ -560,13 +560,21 @@ export class AIPredictionModel {
   updateModel(outcome: TradeOutcome): void {
     console.log(`[Enhanced AI Model] 📚 Learning from REAL trade outcome: ${outcome.success ? 'WIN' : 'LOSS'}, Return: ${outcome.actualReturn.toFixed(2)}%`);
     
-    // Log exit effectiveness for learning
+    // Log exit effectiveness for learning - create a proper MarketContext object
+    const marketContext: MarketContext = {
+      marketRegime: 'SIDEWAYS_QUIET', // Default fallback regime
+      volatilityRegime: 'MEDIUM', // Default fallback volatility
+      liquidityScore: 0.5,
+      spreadQuality: 0.5,
+      marketHour: new Date().getHours(),
+      newsImpact: 0.0
+    };
+    
     this.meanReversionService.logExitEffectiveness(
       'TRADE_CLOSE',
       outcome.profitLoss,
       outcome.holdingTime,
-      // Note: would need market context passed in for full functionality
-      { marketRegime: 'UNKNOWN', volatilityRegime: 'UNKNOWN', liquidityScore: 0.5, spreadQuality: 0.5 } as MarketContext,
+      marketContext,
       outcome.success
     );
     
