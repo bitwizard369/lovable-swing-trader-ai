@@ -20,11 +20,14 @@ export const DatabaseTradingDashboard = () => {
   });
 
   const { 
-    lastPrice, 
     isConnected: wsConnected, 
-    volume24h,
-    priceChange24h 
+    orderBook
   } = useBinanceWebSocket('BTCUSDT');
+
+  // Calculate current price from order book
+  const bestBid = orderBook.bids[0]?.price || 0;
+  const bestAsk = orderBook.asks[0]?.price || 0;
+  const currentPrice = bestBid && bestAsk ? (bestBid + bestAsk) / 2 : 0;
 
   // Initialize trading system on mount
   useEffect(() => {
@@ -35,12 +38,12 @@ export const DatabaseTradingDashboard = () => {
 
   // Update position prices when price changes
   useEffect(() => {
-    if (lastPrice && tradingSystem.isInitialized) {
+    if (currentPrice && tradingSystem.isInitialized) {
       tradingSystem.updatePositionPrices({
-        'BTCUSDT': lastPrice
+        'BTCUSDT': currentPrice
       });
     }
-  }, [lastPrice, tradingSystem.isInitialized]);
+  }, [currentPrice, tradingSystem.isInitialized]);
 
   const handleStartStop = async () => {
     if (isRunning) {
@@ -103,25 +106,17 @@ export const DatabaseTradingDashboard = () => {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
-            <div className="grid grid-cols-3 gap-4 flex-1">
+            <div className="grid grid-cols-2 gap-4 flex-1">
               <div>
                 <p className="text-sm text-muted-foreground">Current Price</p>
                 <p className="text-2xl font-bold">
-                  ${lastPrice?.toLocaleString() || '---'}
+                  ${currentPrice?.toLocaleString() || '---'}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">24h Change</p>
-                <p className={`text-xl font-semibold ${
-                  (priceChange24h || 0) >= 0 ? 'text-green-500' : 'text-red-500'
-                }`}>
-                  {priceChange24h ? `${priceChange24h >= 0 ? '+' : ''}${priceChange24h.toFixed(2)}%` : '---'}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">24h Volume</p>
+                <p className="text-sm text-muted-foreground">Spread</p>
                 <p className="text-xl font-semibold">
-                  {volume24h ? `${(volume24h / 1000000).toFixed(1)}M` : '---'}
+                  ${bestBid && bestAsk ? (bestAsk - bestBid).toFixed(2) : '---'}
                 </p>
               </div>
             </div>
