@@ -31,13 +31,11 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   const wsService = useRef<BinanceWebSocketService | null>(null);
   const updateCountRef = useRef(0);
   const lastUpdateTimeRef = useRef(0);
-  const priceUpdateTimestampRef = useRef(0);
 
-  // Enhanced update handler with better price sync validation
+  // Debounced update handler to prevent excessive re-renders
   const handleDepthUpdate = useCallback((data: BinanceDepthEvent) => {
     const now = Date.now();
     updateCountRef.current++;
-    priceUpdateTimestampRef.current = now;
     
     // Limit update frequency to prevent browser overload
     if (now - lastUpdateTimeRef.current < 100) { // Max 10 updates per second
@@ -47,24 +45,15 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     lastUpdateTimeRef.current = now;
     setLatestUpdate(data);
     
-    console.log(`📈 [Binance.US] Price update received: ${data.b.length} bids, ${data.a.length} asks, Update ID: ${data.u}`);
-    
-    // Update order book with enhanced validation
+    // Update order book with memory management
     setOrderBook(prev => {
       const newBids = [...prev.bids];
       const newAsks = [...prev.asks];
 
-      // Process bid updates with validation
+      // Process bid updates
       data.b.forEach(([price, quantity]) => {
         const priceNum = parseFloat(price);
         const quantityNum = parseFloat(quantity);
-        
-        // Validate price data
-        if (isNaN(priceNum) || priceNum <= 0) {
-          console.warn('⚠️ Invalid bid price received:', price);
-          return;
-        }
-        
         const index = newBids.findIndex(bid => bid.price === priceNum);
         
         if (quantityNum === 0) {
@@ -72,11 +61,6 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
             newBids.splice(index, 1);
           }
         } else {
-          if (isNaN(quantityNum) || quantityNum < 0) {
-            console.warn('⚠️ Invalid bid quantity received:', quantity);
-            return;
-          }
-          
           if (index !== -1) {
             newBids[index].quantity = quantityNum;
           } else {
@@ -85,17 +69,10 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
         }
       });
 
-      // Process ask updates with validation
+      // Process ask updates
       data.a.forEach(([price, quantity]) => {
         const priceNum = parseFloat(price);
         const quantityNum = parseFloat(quantity);
-        
-        // Validate price data
-        if (isNaN(priceNum) || priceNum <= 0) {
-          console.warn('⚠️ Invalid ask price received:', price);
-          return;
-        }
-        
         const index = newAsks.findIndex(ask => ask.price === priceNum);
         
         if (quantityNum === 0) {
@@ -103,11 +80,6 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
             newAsks.splice(index, 1);
           }
         } else {
-          if (isNaN(quantityNum) || quantityNum < 0) {
-            console.warn('⚠️ Invalid ask quantity received:', quantity);
-            return;
-          }
-          
           if (index !== -1) {
             newAsks[index].quantity = quantityNum;
           } else {
@@ -120,41 +92,30 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       newBids.sort((a, b) => b.price - a.price);
       newAsks.sort((a, b) => a.price - b.price);
 
-      const updatedOrderBook = {
-        bids: newBids.slice(0, 20),
-        asks: newAsks.slice(0, 20),
+      return {
+        bids: newBids.slice(0, 20), // Strict memory limit
+        asks: newAsks.slice(0, 20), // Strict memory limit
         lastUpdateId: data.u
       };
-
-      // Log current best prices for verification
-      const bestBid = updatedOrderBook.bids[0]?.price;
-      const bestAsk = updatedOrderBook.asks[0]?.price;
-      if (bestBid && bestAsk) {
-        const currentPrice = (bestBid + bestAsk) / 2;
-        console.log(`💰 [Binance.US] Current Price: $${currentPrice.toFixed(2)} (Bid: $${bestBid.toFixed(2)}, Ask: $${bestAsk.toFixed(2)})`);
-      }
-
-      return updatedOrderBook;
     });
 
-    // Log performance metrics every 50 updates
-    if (updateCountRef.current % 50 === 0) {
-      console.log(`📊 [Performance] ${updateCountRef.current} price updates processed from Binance.US`);
+    // Log performance metrics every 100 updates
+    if (updateCountRef.current % 100 === 0) {
+      console.log(`📊 Performance: ${updateCountRef.current} updates processed`);
     }
   }, []);
 
   const handleConnectionStatusChange = useCallback((status: boolean) => {
     setIsConnected(status);
-    console.log(`🔌 [Binance.US] Connection status: ${status ? 'CONNECTED' : 'DISCONNECTED'}`);
-    
     if (!status) {
-      console.log('🔌 Connection lost - clearing stale price data');
+      console.log('🔌 Connection lost - clearing stale data');
+      // Clear stale data when disconnected
       setLatestUpdate(null);
     }
   }, []);
 
   const connect = useCallback(() => {
-    console.log('🔄 [Binance.US] Establishing WebSocket connection for price sync...');
+    console.log('🔄 Establishing WebSocket connection...');
     
     // Clean up existing connection
     if (wsService.current) {
@@ -171,7 +132,7 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   }, [symbol, handleDepthUpdate, handleConnectionStatusChange]);
 
   const disconnect = useCallback(() => {
-    console.log('🛑 [Binance.US] Manually disconnecting price feed...');
+    console.log('🛑 Manually disconnecting WebSocket...');
     if (wsService.current) {
       wsService.current.cleanup();
       wsService.current = null;
@@ -181,25 +142,22 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
     setLatestUpdate(null);
     updateCountRef.current = 0;
-    priceUpdateTimestampRef.current = 0;
   }, []);
 
   const checkAPIHealth = useCallback(async () => {
-    console.log('🏥 [Binance.US] Checking API health for price sync...');
+    console.log('🏥 Checking API health...');
     const healthy = await checkBinanceAPIHealth();
     setApiHealthy(healthy);
     
     if (!healthy) {
-      console.error('❌ [Binance.US] API unhealthy - price sync may be affected');
-    } else {
-      console.log('✅ [Binance.US] API healthy - price sync should work normally');
+      console.error('❌ API unhealthy - consider reconnecting');
     }
     
     return healthy;
   }, []);
 
   useEffect(() => {
-    console.log('🚀 [Binance.US] Initializing price synchronization system...');
+    console.log('🚀 Initializing WebSocket connection...');
     
     // Check API health on mount
     checkAPIHealth();
@@ -209,21 +167,10 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       connect();
     }, 1000);
 
-    // Price staleness monitor
-    const staleCheckTimer = setInterval(() => {
-      const now = Date.now();
-      const timeSinceLastUpdate = now - priceUpdateTimestampRef.current;
-      
-      if (isConnected && timeSinceLastUpdate > 10000) { // 10 seconds without updates
-        console.warn('⚠️ [Binance.US] Price data may be stale - no updates for', timeSinceLastUpdate / 1000, 'seconds');
-      }
-    }, 5000);
-
     // Cleanup function with proper resource management
     return () => {
-      console.log('🧹 [Binance.US] Cleaning up price sync resources...');
+      console.log('🧹 Cleaning up WebSocket resources...');
       clearTimeout(connectTimer);
-      clearInterval(staleCheckTimer);
       
       if (wsService.current) {
         wsService.current.cleanup();
@@ -236,16 +183,14 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       setLatestUpdate(null);
       setApiHealthy(null);
       updateCountRef.current = 0;
-      priceUpdateTimestampRef.current = 0;
     };
   }, [connect, checkAPIHealth]);
 
-  // Performance monitoring with price sync focus
+  // Performance monitoring
   useEffect(() => {
     const performanceTimer = setInterval(() => {
       if (updateCountRef.current > 0) {
-        const timeSinceLastUpdate = Date.now() - priceUpdateTimestampRef.current;
-        console.log(`📈 [Binance.US Price Sync] Updates: ${updateCountRef.current}, Connected: ${isConnected}, Last Update: ${timeSinceLastUpdate}ms ago`);
+        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}`);
       }
     }, 30000); // Every 30 seconds
 
@@ -260,10 +205,8 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     connect,
     disconnect,
     checkAPIHealth,
-    // Enhanced debugging info for price sync
+    // Add performance metrics for debugging
     updateCount: updateCountRef.current,
-    connectionStable: isConnected && updateCountRef.current > 0,
-    lastPriceUpdateTime: priceUpdateTimestampRef.current,
-    isPriceDataFresh: Date.now() - priceUpdateTimestampRef.current < 10000 // Fresh if updated within 10 seconds
+    connectionStable: isConnected && updateCountRef.current > 0
   };
 };
