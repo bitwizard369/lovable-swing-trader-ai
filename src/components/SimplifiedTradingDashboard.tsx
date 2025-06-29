@@ -63,7 +63,7 @@ export const SimplifiedTradingDashboard = ({
               <div className="flex items-center gap-2">
                 {isConnected ? <Wifi className="h-4 w-4 text-green-500" /> : <WifiOff className="h-4 w-4 text-red-500" />}
                 <span className="text-sm font-medium">Connection</span>
-                {isStale && <AlertTriangle className="h-3 w-3 text-yellow-500" title="Price data is stale" />}
+                {isStale && <AlertTriangle className="h-3 w-3 text-yellow-500" />}
               </div>
               <Badge variant={isConnected ? "default" : "destructive"}>
                 {isConnected ? "Live" : "Offline"}
