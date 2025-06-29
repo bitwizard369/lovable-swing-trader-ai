@@ -2,39 +2,54 @@
 import { useBinanceWebSocket } from "@/hooks/useBinanceWebSocket";
 import { useAdvancedTradingSystem } from "@/hooks/useAdvancedTradingSystem";
 import { SimplifiedTradingDashboard } from "@/components/SimplifiedTradingDashboard";
+import { useTradingStore } from "@/stores/tradingStore";
+import { useEffect } from "react";
 
 const Index = () => {
   const {
-    isConnected,
-    orderBook,
-    apiHealthy,
     connect,
     disconnect,
   } = useBinanceWebSocket('btcusdt');
 
+  // Initialize the trading system but don't use its fragmented state
   const {
-    portfolio,
-    signals,
+    portfolio: legacyPortfolio,
+    signals: legacySignals,
     getModelPerformance,
   } = useAdvancedTradingSystem(
     'btcusdt',
-    orderBook.bids,
-    orderBook.asks
+    [], // Empty bids since we're using centralized store
+    []  // Empty asks since we're using centralized store
   );
 
-  const modelPerformance = getModelPerformance();
+  const { updatePortfolio, addSignal, updateModelPerformance } = useTradingStore();
+
+  // Sync legacy data with centralized store
+  useEffect(() => {
+    if (legacyPortfolio) {
+      updatePortfolio(legacyPortfolio);
+    }
+  }, [legacyPortfolio, updatePortfolio]);
+
+  useEffect(() => {
+    if (legacySignals && legacySignals.length > 0) {
+      const latestSignal = legacySignals[legacySignals.length - 1];
+      addSignal(latestSignal);
+    }
+  }, [legacySignals, addSignal]);
+
+  useEffect(() => {
+    const modelPerformance = getModelPerformance();
+    if (modelPerformance) {
+      updateModelPerformance(modelPerformance);
+    }
+  }, [getModelPerformance, updateModelPerformance]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <SimplifiedTradingDashboard
-        isConnected={isConnected}
-        apiHealthy={apiHealthy}
         onConnect={connect}
         onDisconnect={disconnect}
-        orderBook={orderBook}
-        portfolio={portfolio}
-        modelPerformance={modelPerformance}
-        signals={signals}
       />
     </div>
   );

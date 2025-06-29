@@ -1,6 +1,7 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BinanceWebSocketService, checkBinanceAPIHealth } from '@/services/binanceWebSocket';
-import { UnifiedPriceService } from '@/services/unifiedPriceService';
+import { useTradingStore } from '@/stores/tradingStore';
 
 interface BinanceDepthEvent {
   e: string;
@@ -24,14 +25,17 @@ interface OrderBook {
 }
 
 export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [orderBook, setOrderBook] = useState<OrderBook>({ bids: [], asks: [], lastUpdateId: 0 });
-  const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
   const [latestUpdate, setLatestUpdate] = useState<BinanceDepthEvent | null>(null);
   const wsService = useRef<BinanceWebSocketService | null>(null);
   const updateCountRef = useRef(0);
   const lastUpdateTimeRef = useRef(0);
-  const priceService = useRef<UnifiedPriceService>(UnifiedPriceService.getInstance(symbol));
+
+  // Use centralized store
+  const { 
+    updateOrderBook, 
+    updateWebSocketState, 
+    webSocket: { isConnected, apiHealthy } 
+  } = useTradingStore();
 
   // Debounced update handler to prevent excessive re-renders
   const handleDepthUpdate = useCallback((data: BinanceDepthEvent) => {
@@ -47,77 +51,56 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     setLatestUpdate(data);
     
     // Update order book with memory management
-    setOrderBook(prev => {
-      const newBids = [...prev.bids];
-      const newAsks = [...prev.asks];
+    const newBids: OrderBookLevel[] = [];
+    const newAsks: OrderBookLevel[] = [];
 
-      // Process bid updates
-      data.b.forEach(([price, quantity]) => {
-        const priceNum = parseFloat(price);
-        const quantityNum = parseFloat(quantity);
-        const index = newBids.findIndex(bid => bid.price === priceNum);
-        
-        if (quantityNum === 0) {
-          if (index !== -1) {
-            newBids.splice(index, 1);
-          }
-        } else {
-          if (index !== -1) {
-            newBids[index].quantity = quantityNum;
-          } else {
-            newBids.push({ price: priceNum, quantity: quantityNum });
-          }
-        }
-      });
-
-      // Process ask updates
-      data.a.forEach(([price, quantity]) => {
-        const priceNum = parseFloat(price);
-        const quantityNum = parseFloat(quantity);
-        const index = newAsks.findIndex(ask => ask.price === priceNum);
-        
-        if (quantityNum === 0) {
-          if (index !== -1) {
-            newAsks.splice(index, 1);
-          }
-        } else {
-          if (index !== -1) {
-            newAsks[index].quantity = quantityNum;
-          } else {
-            newAsks.push({ price: priceNum, quantity: quantityNum });
-          }
-        }
-      });
-
-      // Sort and limit to prevent memory bloat
-      newBids.sort((a, b) => b.price - a.price);
-      newAsks.sort((a, b) => a.price - b.price);
-
-      const updatedOrderBook = {
-        bids: newBids.slice(0, 20),
-        asks: newAsks.slice(0, 20),
-        lastUpdateId: data.u
-      };
-
-      // **CRITICAL FIX**: Update the unified price service
-      priceService.current.updatePrice(updatedOrderBook.bids, updatedOrderBook.asks);
-
-      return updatedOrderBook;
+    // Process bid updates
+    data.b.forEach(([price, quantity]) => {
+      const priceNum = parseFloat(price);
+      const quantityNum = parseFloat(quantity);
+      
+      if (quantityNum > 0) {
+        newBids.push({ price: priceNum, quantity: quantityNum });
+      }
     });
+
+    // Process ask updates
+    data.a.forEach(([price, quantity]) => {
+      const priceNum = parseFloat(price);
+      const quantityNum = parseFloat(quantity);
+      
+      if (quantityNum > 0) {
+        newAsks.push({ price: priceNum, quantity: quantityNum });
+      }
+    });
+
+    // Sort and limit to prevent memory bloat
+    newBids.sort((a, b) => b.price - a.price);
+    newAsks.sort((a, b) => a.price - b.price);
+
+    const updatedOrderBook = {
+      bids: newBids.slice(0, 20),
+      asks: newAsks.slice(0, 20),
+      lastUpdateId: data.u
+    };
+
+    // Update the centralized store
+    updateOrderBook(updatedOrderBook);
+    updateWebSocketState({ updateCount: updateCountRef.current });
 
     // Log performance metrics every 100 updates
     if (updateCountRef.current % 100 === 0) {
-      console.log(`📊 Performance: ${updateCountRef.current} updates processed, Price service subscribers: ${priceService.current.getSubscriberCount()}`);
+      console.log(`📊 Performance: ${updateCountRef.current} updates processed`);
     }
-  }, []);
+  }, [updateOrderBook, updateWebSocketState]);
 
   const handleConnectionStatusChange = useCallback((status: boolean) => {
-    setIsConnected(status);
+    updateWebSocketState({ isConnected: status });
     if (!status) {
       console.log('🔌 Connection lost - clearing stale data');
       setLatestUpdate(null);
     }
-  }, []);
+  }, [updateWebSocketState]);
 
   const connect = useCallback(() => {
     console.log('🔄 Establishing WebSocket connection...');
@@ -142,23 +125,27 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       wsService.current = null;
     }
     
-    setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
+    updateOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
     setLatestUpdate(null);
     updateCountRef.current = 0;
-    priceService.current.reset();
-  }, []);
+    updateWebSocketState({ 
+      isConnected: false, 
+      updateCount: 0,
+      connectionStable: false 
+    });
+  }, [updateOrderBook, updateWebSocketState]);
 
   const checkAPIHealth = useCallback(async () => {
     console.log('🏥 Checking API health...');
     const healthy = await checkBinanceAPIHealth();
-    setApiHealthy(healthy);
+    updateWebSocketState({ apiHealthy: healthy });
     
     if (!healthy) {
       console.error('❌ API unhealthy - consider reconnecting');
     }
     
     return healthy;
-  }, []);
+  }, [updateWebSocketState]);
 
   useEffect(() => {
     console.log('🚀 Initializing WebSocket connection...');
@@ -178,36 +165,38 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
         wsService.current = null;
       }
       
-      setIsConnected(false);
-      setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
+      updateWebSocketState({ 
+        isConnected: false,
+        apiHealthy: null,
+        updateCount: 0,
+        connectionStable: false
+      });
       setLatestUpdate(null);
-      setApiHealthy(null);
       updateCountRef.current = 0;
-      priceService.current.reset();
     };
-  }, [connect, checkAPIHealth]);
+  }, [connect, checkAPIHealth, updateWebSocketState]);
 
   // Performance monitoring
   useEffect(() => {
     const performanceTimer = setInterval(() => {
       if (updateCountRef.current > 0) {
-        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}, Price subscribers: ${priceService.current.getSubscriberCount()}`);
+        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}`);
+        updateWebSocketState({ connectionStable: isConnected && updateCountRef.current > 0 });
       }
     }, 30000);
 
     return () => clearInterval(performanceTimer);
-  }, [isConnected]);
+  }, [isConnected, updateWebSocketState]);
 
   return {
     isConnected,
-    orderBook,
+    orderBook: { bids: [], asks: [], lastUpdateId: 0 }, // Legacy compatibility
     apiHealthy,
     latestUpdate,
     connect,
     disconnect,
     checkAPIHealth,
     updateCount: updateCountRef.current,
-    connectionStable: isConnected && updateCountRef.current > 0,
-    priceService: priceService.current
+    connectionStable: isConnected && updateCountRef.current > 0
   };
 };
