@@ -1,6 +1,6 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BinanceWebSocketService, checkBinanceAPIHealth } from '@/services/binanceWebSocket';
+import { UnifiedPriceService } from '@/services/unifiedPriceService';
 
 interface BinanceDepthEvent {
   e: string;
@@ -31,6 +31,7 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   const wsService = useRef<BinanceWebSocketService | null>(null);
   const updateCountRef = useRef(0);
   const lastUpdateTimeRef = useRef(0);
+  const priceService = useRef<UnifiedPriceService>(UnifiedPriceService.getInstance(symbol));
 
   // Debounced update handler to prevent excessive re-renders
   const handleDepthUpdate = useCallback((data: BinanceDepthEvent) => {
@@ -38,7 +39,7 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     updateCountRef.current++;
     
     // Limit update frequency to prevent browser overload
-    if (now - lastUpdateTimeRef.current < 100) { // Max 10 updates per second
+    if (now - lastUpdateTimeRef.current < 100) {
       return;
     }
     
@@ -92,16 +93,21 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       newBids.sort((a, b) => b.price - a.price);
       newAsks.sort((a, b) => a.price - b.price);
 
-      return {
-        bids: newBids.slice(0, 20), // Strict memory limit
-        asks: newAsks.slice(0, 20), // Strict memory limit
+      const updatedOrderBook = {
+        bids: newBids.slice(0, 20),
+        asks: newAsks.slice(0, 20),
         lastUpdateId: data.u
       };
+
+      // **CRITICAL FIX**: Update the unified price service
+      priceService.current.updatePrice(updatedOrderBook.bids, updatedOrderBook.asks);
+
+      return updatedOrderBook;
     });
 
     // Log performance metrics every 100 updates
     if (updateCountRef.current % 100 === 0) {
-      console.log(`📊 Performance: ${updateCountRef.current} updates processed`);
+      console.log(`📊 Performance: ${updateCountRef.current} updates processed, Price service subscribers: ${priceService.current.getSubscriberCount()}`);
     }
   }, []);
 
@@ -109,7 +115,6 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     setIsConnected(status);
     if (!status) {
       console.log('🔌 Connection lost - clearing stale data');
-      // Clear stale data when disconnected
       setLatestUpdate(null);
     }
   }, []);
@@ -117,7 +122,6 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   const connect = useCallback(() => {
     console.log('🔄 Establishing WebSocket connection...');
     
-    // Clean up existing connection
     if (wsService.current) {
       wsService.current.cleanup();
     }
@@ -138,10 +142,10 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
       wsService.current = null;
     }
     
-    // Reset state
     setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
     setLatestUpdate(null);
     updateCountRef.current = 0;
+    priceService.current.reset();
   }, []);
 
   const checkAPIHealth = useCallback(async () => {
@@ -159,15 +163,12 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   useEffect(() => {
     console.log('🚀 Initializing WebSocket connection...');
     
-    // Check API health on mount
     checkAPIHealth();
 
-    // Auto-connect with delay to prevent immediate reconnection loops
     const connectTimer = setTimeout(() => {
       connect();
     }, 1000);
 
-    // Cleanup function with proper resource management
     return () => {
       console.log('🧹 Cleaning up WebSocket resources...');
       clearTimeout(connectTimer);
@@ -177,12 +178,12 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
         wsService.current = null;
       }
       
-      // Reset all state
       setIsConnected(false);
       setOrderBook({ bids: [], asks: [], lastUpdateId: 0 });
       setLatestUpdate(null);
       setApiHealthy(null);
       updateCountRef.current = 0;
+      priceService.current.reset();
     };
   }, [connect, checkAPIHealth]);
 
@@ -190,9 +191,9 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
   useEffect(() => {
     const performanceTimer = setInterval(() => {
       if (updateCountRef.current > 0) {
-        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}`);
+        console.log(`📈 WebSocket Performance: ${updateCountRef.current} updates, Connected: ${isConnected}, Price subscribers: ${priceService.current.getSubscriberCount()}`);
       }
-    }, 30000); // Every 30 seconds
+    }, 30000);
 
     return () => clearInterval(performanceTimer);
   }, [isConnected]);
@@ -205,8 +206,8 @@ export const useBinanceWebSocket = (symbol: string = 'btcusdt') => {
     connect,
     disconnect,
     checkAPIHealth,
-    // Add performance metrics for debugging
     updateCount: updateCountRef.current,
-    connectionStable: isConnected && updateCountRef.current > 0
+    connectionStable: isConnected && updateCountRef.current > 0,
+    priceService: priceService.current
   };
 };

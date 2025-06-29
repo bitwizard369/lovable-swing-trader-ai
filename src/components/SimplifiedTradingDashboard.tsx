@@ -2,10 +2,11 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Wifi, WifiOff, Activity } from "lucide-react";
+import { Wifi, WifiOff, Activity, AlertTriangle } from "lucide-react";
 import { Portfolio, Position, TradingSignal } from "@/types/trading";
 import { SimplifiedMetrics } from "./SimplifiedMetrics";
 import { SimplifiedPositions } from "./SimplifiedPositions";
+import { useUnifiedPrice } from "@/hooks/useUnifiedPrice";
 
 interface OrderBookLevel {
   price: number;
@@ -39,13 +40,12 @@ export const SimplifiedTradingDashboard = ({
   modelPerformance,
   signals
 }: SimplifiedTradingDashboardProps) => {
+  // **CRITICAL FIX**: Use unified price service instead of calculating independently
+  const { currentPrice, bid, ask, isStale } = useUnifiedPrice('BTCUSDT');
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
-
-  const bestBid = orderBook.bids[0]?.price || 0;
-  const bestAsk = orderBook.asks[0]?.price || 0;
-  const currentPrice = (bestBid + bestAsk) / 2;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -63,6 +63,7 @@ export const SimplifiedTradingDashboard = ({
               <div className="flex items-center gap-2">
                 {isConnected ? <Wifi className="h-4 w-4 text-green-500" /> : <WifiOff className="h-4 w-4 text-red-500" />}
                 <span className="text-sm font-medium">Connection</span>
+                {isStale && <AlertTriangle className="h-3 w-3 text-yellow-500" title="Price data is stale" />}
               </div>
               <Badge variant={isConnected ? "default" : "destructive"}>
                 {isConnected ? "Live" : "Offline"}
@@ -80,16 +81,19 @@ export const SimplifiedTradingDashboard = ({
         </Card>
       </div>
 
-      {/* Current Price */}
-      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+      {/* Current Price - Now using unified price service */}
+      <Card className={`bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 ${isStale ? 'border-yellow-300' : ''}`}>
         <CardContent className="p-6">
           <div className="flex items-center justify-center gap-4">
             <Activity className="h-8 w-8 text-blue-600" />
             <div className="text-center">
               <p className="text-sm text-muted-foreground">BTC/USDT</p>
-              <p className="text-4xl font-bold text-blue-900">{formatCurrency(currentPrice)}</p>
+              <p className="text-4xl font-bold text-blue-900">
+                {formatCurrency(currentPrice)}
+                {isStale && <span className="text-sm text-yellow-600 ml-2">(STALE)</span>}
+              </p>
               <p className="text-sm text-muted-foreground">
-                Bid: {formatCurrency(bestBid)} | Ask: {formatCurrency(bestAsk)}
+                Bid: {formatCurrency(bid)} | Ask: {formatCurrency(ask)}
               </p>
             </div>
           </div>
