@@ -39,9 +39,19 @@ const Index = () => {
   }, [legacySignals, addSignal]);
 
   useEffect(() => {
-    const modelPerformance = getModelPerformance();
-    if (modelPerformance) {
-      updateModelPerformance(modelPerformance);
+    const legacyModelPerformance = getModelPerformance();
+    if (legacyModelPerformance && legacyModelPerformance.realDataStats) {
+      // Extract only the compatible properties for our centralized store
+      const compatiblePerformance = {
+        totalTrades: legacyModelPerformance.realDataStats.totalTrades || 0,
+        winRate: legacyModelPerformance.realDataStats.winRate || 0,
+        sharpeRatio: legacyModelPerformance.realDataStats.sharpeRatio || 0,
+        maxDrawdown: legacyModelPerformance.realDataStats.maxDrawdown || 0,
+        profitFactor: legacyModelPerformance.realDataStats.profitFactor || 0,
+        avgWin: legacyModelPerformance.realDataStats.avgReturn || 0,
+        avgLoss: Math.abs(legacyModelPerformance.realDataStats.avgMAE || 0)
+      };
+      updateModelPerformance(compatiblePerformance);
     }
   }, [getModelPerformance, updateModelPerformance]);
 
